@@ -11,8 +11,8 @@ Prompt: [`prompt.md`](prompt.md) — the task-specific ask, wrapped with the rep
 `PROMPT_PREFIX.md` / `PROMPT_SUFFIX.md` before being sent to each agent.
 
 Each agent's run is in its own `<task>-<agent>/` subdir: the generated `.pr`, the
-recording (`demo.gif`), `SUMMARY.md` (the agent's TL;DR of how it went), and
-`context.md` (that run's provenance).
+recording (`demo.cast`, played with the asciinema player), `SUMMARY.md` (the
+agent's TL;DR of how it went), and `context.md` (that run's provenance).
 
 ## Results
 

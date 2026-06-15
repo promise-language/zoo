@@ -4,10 +4,13 @@ The simplest task: can an agent, with **no prior knowledge of Promise**, learn t
 language from the toolchain (`promise --help`, `promise guide`) and produce a
 working "hello, world"?
 
-Prompt: [`prompt.md`](prompt.md) — sent verbatim to each agent.
+Prompt: [`prompt.md`](prompt.md) — the task-specific ask, wrapped with the repo-root
+[`PROMPT_PREFIX.md`](../PROMPT_PREFIX.md) / [`PROMPT_SUFFIX.md`](../PROMPT_SUFFIX.md)
+before being sent to each agent.
 
 Each agent's run is in its own `hello-world-<agent>/` subdir: the generated `.pr`,
-the recording (`demo.gif`), and `context.md` (that run's provenance + how it went).
+the recording (`demo.cast`, played with the asciinema player), `SUMMARY.md` (the
+agent's TL;DR of how it went), and `context.md` (that run's provenance).
 
 ## Results
 

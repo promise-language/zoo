@@ -29,8 +29,8 @@ prompt actually sent to each agent wraps that `prompt.md` with the repo-root
 `hello-world/hello-world-claude/`) — named so Promise's folder-derived binary is
 descriptive (`./hello-world-claude`) — containing the generated `.pr` source,
 `SUMMARY.md` (the agent's own TL;DR of how it went), `context.md` (provenance), and
-the recording (`demo.cast`, `demo.gif`). Runs are captured with
-[`bin/record.sh`](bin/record.sh).
+the recording (`demo.cast`, viewed with the [asciinema player](https://docs.asciinema.org/manual/player/)
+— `asciinema play demo.cast`). Runs are captured with [`bin/record.sh`](bin/record.sh).
 
 ## Honest caveats
 

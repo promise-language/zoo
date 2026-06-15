@@ -13,8 +13,10 @@
 # is descriptive. Outputs go into that subdir:
 #   SUMMARY.md   the agent's own TL;DR of the run (requested by PROMPT_SUFFIX.md)
 #   context.md   provenance (date, OS, promise + agent versions, duration)
-#   demo.cast    asciinema recording   (if asciinema is installed)
-#   demo.gif     GIF render            (if agg is installed)
+#   demo.cast    asciinema recording — view with the asciinema PLAYER, which
+#                renders Claude's TUI faithfully. We do NOT render a GIF: agg's
+#                emulator garbles Claude's live redraws (overlapping text). Use
+#                `asciinema play demo.cast` (local) or upload/embed the player.
 #   (plus the generated .pr; the compiled binary is removed)
 #
 # The agent runs INTERACTIVELY (its TUI renders — headless `-p` is blank) in
@@ -28,9 +30,10 @@
 # pushes the whole layout and corrupts the GIF. ~110-120 cols is safe. (record.sh
 # deliberately does NOT force a resize; doing so was wrapping the header.)
 #
-# Privacy: any @gmail.com address is masked in the recording before the GIF — the
-# local part becomes same-length 'x's, keeping @gmail.com (same length + escape-
-# preserving so the cast's cursor positions stay valid). Add more via REDACT.
+# Privacy: any @gmail.com address is masked in the recording before you play /
+# upload / embed it — the local part becomes same-length 'x's, keeping @gmail.com
+# (same length + escape-preserving so the cast's cursor positions stay valid).
+# Add more via REDACT.
 #   REDACT='you@work.com|secret' bin/record.sh claude <task-dir>
 #
 # The `promise` toolchain is required; ~/.promise/bin is put on PATH for this run.
@@ -140,9 +143,12 @@ if [[ -f "$cast" ]]; then
   echo "masked @gmail.com${REDACT:+ + custom patterns} in the recording"
 fi
 
-# --- gif ---
-if command -v agg >/dev/null 2>&1 && [[ -f "$cast" ]]; then
-  agg "$cast" "$out_dir/demo.gif" && echo "wrote $out_dir/demo.gif"
+# --- the asciinema PLAYER renders the TUI faithfully; agg's GIF renderer garbles
+#     Claude's redraws, so we keep the .cast (no GIF) and point at the player ---
+if [[ -f "$cast" ]]; then
+  echo "recording: $cast"
+  echo "  preview faithfully:  asciinema play $(printf %q "$cast")"
+  echo "  share:  asciinema upload <cast>  (asciinema.org), or embed asciinema-player on the site"
 fi
 
 # --- drop compiled binaries (extensionless executables; regenerable) ---
