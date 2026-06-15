@@ -17,7 +17,8 @@
 # The agent runs INTERACTIVELY (its TUI), so the session actually renders in the
 # recording — headless `-p` just shows a blank screen. It's still autonomous
 # (tool approvals bypassed) so there are no approval interruptions; you just watch
-# and, when it's done, exit the agent to stop the recording.
+# and, when it's done, exit the agent to stop the recording. The terminal is sized
+# to REC_COLS x REC_ROWS (default 100x30) for a legible GIF, then restored.
 #
 # Privacy: any @gmail.com address in the recording is auto-redacted to
 # <redacted>@gmail.com before the GIF is rendered. To scrub additional secrets,
@@ -33,6 +34,8 @@ set -uo pipefail
 CLAUDE_FLAGS="--dangerously-skip-permissions"
 GEMINI_FLAGS="--yolo"
 PROMISE_BIN="$HOME/.promise/bin"
+REC_COLS=100   # recording window size for a legible GIF (best-effort — tmux / some
+REC_ROWS=30    # terminals ignore the resize escape; your original size is restored after)
 
 # --- internal entrypoint: the actual agent run (also invoked inside asciinema) ---
 # NOTE: launched interactively (no -p) and NOT piped (no `| tee`) — both would stop
@@ -99,6 +102,10 @@ command -v sw_vers >/dev/null 2>&1 && os="$(sw_vers -productName) $(sw_vers -pro
   echo "| Agent | $agent — $agent_ver |"
 } > "$ctx"
 
+# --- size the window for a legible recording (best-effort), remembering the original ---
+orig_size="$(stty size 2>/dev/null || true)"   # "rows cols"
+printf '\e[8;%d;%dt' "$REC_ROWS" "$REC_COLS"; sleep 0.3
+
 # --- run, recording if asciinema is available ---
 cast="$out_dir/demo.cast"
 start=$(date +%s)
@@ -110,6 +117,9 @@ else
   bash "$0" __run "$agent" "$task_dir"
 fi
 echo "| Session duration | $(( $(date +%s) - start ))s |" >> "$ctx"
+
+# --- restore the original window size ---
+[[ -n "${orig_size:-}" ]] && printf '\e[8;%s;%st' "${orig_size%% *}" "${orig_size##* }"
 
 # --- redact secrets from the recording before rendering ---
 # Always: any <local>@gmail.com -> <redacted>@gmail.com. Optional: REDACT='pat1|pat2'.
