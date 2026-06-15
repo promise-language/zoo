@@ -15,10 +15,11 @@
 #   (plus the agent's generated .pr source; the compiled binary is removed)
 #
 # The agent runs INTERACTIVELY (its TUI), so the session actually renders in the
-# recording — headless `-p` just shows a blank screen. It's still autonomous
-# (tool approvals bypassed) so there are no approval interruptions; you just watch
-# and, when it's done, exit the agent to stop the recording. The terminal is sized
-# to REC_COLS x REC_ROWS (default 100x30) for a legible GIF, then restored.
+# recording — headless `-p` just shows a blank screen. claude runs in
+# auto-accept-edits mode (no "bypass permissions" warning to click through); the
+# promise commands it needs are allowlisted in .claude/settings.local.json, so it
+# runs without interruptions. Watch it, then exit (/exit) to stop the recording.
+# The terminal is sized to REC_COLS x REC_ROWS (default 100x30), then restored.
 #
 # Privacy: any @gmail.com address in the recording is auto-redacted to
 # <redacted>@gmail.com before the GIF is rendered. To scrub additional secrets,
@@ -31,8 +32,8 @@
 
 set -uo pipefail
 
-CLAUDE_FLAGS="--dangerously-skip-permissions"
-GEMINI_FLAGS="--yolo"
+CLAUDE_FLAGS="--permission-mode acceptEdits"   # auto-accept edits; promise cmds are allowlisted in .claude/settings.local.json
+GEMINI_FLAGS="--yolo"                           # gemini's auto-accept-all (it doesn't read claude's allowlist)
 PROMISE_BIN="$HOME/.promise/bin"
 REC_COLS=100   # recording window size for a legible GIF (best-effort — tmux / some
 REC_ROWS=30    # terminals ignore the resize escape; your original size is restored after)
@@ -81,7 +82,7 @@ if command -v pbcopy >/dev/null 2>&1; then pbcopy < "$task_dir/prompt.md"; clip=
 
 # --- confirm (you drive the interactive session) ---
 echo
-echo "'$agent' will open INTERACTIVELY in $out_dir (tool approvals bypassed)."
+echo "'$agent' will open INTERACTIVELY in $out_dir (auto-accepting edits)."
 echo "The prompt should seed automatically; if it doesn't, $clip."
 echo "When the agent finishes, exit it (/exit or Ctrl-D) to stop the recording."
 read -r -p "Proceed? [y/N] " ans
