@@ -20,12 +20,16 @@ edges, not just the clean wins.
 
 ## How it's organized
 
-Each **task** is a folder with the shared `prompt.md` and a `README.md` results
-table across agents (see [`TEMPLATE.md`](TEMPLATE.md)). Each **agent's run** lands
-in a `<task>-<agent>/` subdir (e.g. `hello-world/hello-world-claude/`) — named so
-that Promise's folder-derived binary is descriptive (`./hello-world-claude`) —
-containing the generated `.pr` source, `context.md` (provenance + how it went),
-and the recording (`transcript.txt`, `demo.gif`). Runs are captured with
+Each **task** is a folder with its own `prompt.md` (the task-specific ask) and a
+`README.md` results table across agents (see [`TEMPLATE.md`](TEMPLATE.md)). The
+prompt actually sent to each agent wraps that `prompt.md` with the repo-root
+[`PROMPT_PREFIX.md`](PROMPT_PREFIX.md) (shared "learn Promise first" preamble) and
+[`PROMPT_SUFFIX.md`](PROMPT_SUFFIX.md) (shared "write a SUMMARY" postamble). Each
+**agent's run** lands in a `<task>-<agent>/` subdir (e.g.
+`hello-world/hello-world-claude/`) — named so Promise's folder-derived binary is
+descriptive (`./hello-world-claude`) — containing the generated `.pr` source,
+`SUMMARY.md` (the agent's own TL;DR of how it went), `context.md` (provenance), and
+the recording (`demo.cast`, `demo.gif`). Runs are captured with
 [`bin/record.sh`](bin/record.sh).
 
 ## Honest caveats

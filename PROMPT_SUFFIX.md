@@ -1,0 +1,1 @@
+When you're done, write SUMMARY.md in the current directory: a few sentences on what you built, whether it compiled and ran on the first try, the program output, and anything about Promise that surprised you or that you had to work out (it is not in your training data).

@@ -1,0 +1,1 @@
+Promise is a brand-new statically-typed, natively-compiled programming language. Its compiler is already installed on this machine as the `promise` command, but the language is not in your training data — so first learn it: run `promise --help` and `promise guide` to pick up the syntax and the project workflow.

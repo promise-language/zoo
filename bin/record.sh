@@ -4,10 +4,14 @@
 #
 # Usage:   bin/record.sh <claude|gemini> <task-dir>
 #
-# <task-dir> must contain prompt.md. The agent runs in a per-agent subdir named
-# <task>-<agent> (e.g. hello-world/hello-world-claude/) so several agents can do
-# the same task side by side, none can clobber the task README, and Promise's
-# folder-derived binary name is descriptive. Outputs go into that subdir:
+# <task-dir> must contain prompt.md (the task's specific ask). The prompt actually
+# sent to the agent is PROMPT_PREFIX.md + that prompt.md + PROMPT_SUFFIX.md — a
+# shared preamble/postamble at the repo root that wrap every task (both optional).
+# The agent runs in a per-agent subdir named <task>-<agent> (e.g.
+# hello-world/hello-world-claude/) so several agents can do the same task side by
+# side, none can clobber the task README, and Promise's folder-derived binary name
+# is descriptive. Outputs go into that subdir:
+#   SUMMARY.md   the agent's own TL;DR of the run (requested by PROMPT_SUFFIX.md)
 #   context.md   provenance (date, OS, promise + agent versions, duration)
 #   demo.cast    asciinema recording   (if asciinema is installed)
 #   demo.gif     GIF render            (if agg is installed)
@@ -39,13 +43,14 @@ PROMISE_BIN="$HOME/.promise/bin"
 
 # --- internal entrypoint: the actual agent run (also invoked inside asciinema) ---
 # Interactive (no -p) and unpiped (no `| tee`) — both would stop the TUI rendering.
+# The prompt was pre-assembled (PREFIX + task prompt.md + SUFFIX) into $prompt_file
+# by the main flow; $run_dir is the absolute per-agent subdir.
 if [[ "${1:-}" == "__run" ]]; then
-  agent="$2"; task_dir="$3"
+  agent="$2"; prompt_file="$3"; run_dir="$4"
   export PATH="$PROMISE_BIN:$PATH"
-  prompt="$(cat "$task_dir/prompt.md")"
-  sub="$(basename "$task_dir")-$agent"   # e.g. hello-world-claude
-  mkdir -p "$task_dir/$sub"
-  cd "$task_dir/$sub" || exit 1
+  prompt="$(cat "$prompt_file")"
+  mkdir -p "$run_dir"
+  cd "$run_dir" || exit 1
   case "$agent" in
     claude) claude $CLAUDE_FLAGS "$prompt" ;;
     gemini) gemini $GEMINI_FLAGS "$prompt" ;;
@@ -62,6 +67,18 @@ task_dir="${task_dir%/}"
 [[ -f "$task_dir/prompt.md" ]] || { echo "error: $task_dir/prompt.md not found (create it first)" >&2; exit 2; }
 out_dir="$task_dir/$(basename "$task_dir")-$agent"
 mkdir -p "$out_dir"
+out_dir_abs="$(cd "$out_dir" && pwd)"   # absolute — the agent run cd's here
+
+# --- assemble the prompt: PROMPT_PREFIX.md + the task's prompt.md + PROMPT_SUFFIX.md ---
+# Shared preamble/postamble (repo root) wrap each task's specific prompt; both optional.
+root="$(cd "$(dirname "$0")/.." && pwd)"
+prompt_file="$(mktemp "${TMPDIR:-/tmp}/zoo-prompt.XXXXXX")"
+trap 'rm -f "$prompt_file"' EXIT
+{
+  [[ -f "$root/PROMPT_PREFIX.md" ]] && { cat "$root/PROMPT_PREFIX.md"; printf '\n\n'; }
+  cat "$task_dir/prompt.md"
+  [[ -f "$root/PROMPT_SUFFIX.md" ]] && { printf '\n\n'; cat "$root/PROMPT_SUFFIX.md"; }
+} > "$prompt_file"
 
 # --- promise prerequisite ---
 export PATH="$PROMISE_BIN:$PATH"
@@ -75,8 +92,8 @@ agent_ver="$("$agent" --version 2>&1 | head -1)"
 echo "agent:   $agent — $agent_ver"
 echo "output:  $out_dir/"
 
-# --- prompt on clipboard as a seed fallback ---
-if command -v pbcopy >/dev/null 2>&1; then pbcopy < "$task_dir/prompt.md"; clip="it's on your clipboard — paste with Cmd+V"; else clip="it's in $task_dir/prompt.md"; fi
+# --- assembled prompt on clipboard as a seed fallback ---
+if command -v pbcopy >/dev/null 2>&1; then pbcopy < "$prompt_file"; clip="the full prompt is on your clipboard — paste with Cmd+V"; else clip="the full prompt is in $prompt_file"; fi
 
 # --- confirm ---
 echo
@@ -105,12 +122,12 @@ command -v sw_vers >/dev/null 2>&1 && os="$(sw_vers -productName) $(sw_vers -pro
 # --- run, recording if asciinema is available ---
 cast="$out_dir/demo.cast"
 start=$(date +%s)
-inner="bash $(printf %q "$0") __run $(printf %q "$agent") $(printf %q "$task_dir")"
+inner="bash $(printf %q "$0") __run $(printf %q "$agent") $(printf %q "$prompt_file") $(printf %q "$out_dir_abs")"
 if command -v asciinema >/dev/null 2>&1; then
   asciinema rec "$cast" --overwrite -c "$inner"
 else
   echo "(asciinema not found — running without a screen recording)"
-  bash "$0" __run "$agent" "$task_dir"
+  bash "$0" __run "$agent" "$prompt_file" "$out_dir_abs"
 fi
 echo "| Session duration | $(( $(date +%s) - start ))s |" >> "$ctx"
 
@@ -136,4 +153,8 @@ done
 echo
 echo "done — outputs in $out_dir:"
 ls -la "$out_dir"
+if [[ -f "$out_dir/SUMMARY.md" ]]; then
+  echo; echo "=== SUMMARY.md (the agent's TL;DR — the session closes too fast to read live) ==="
+  cat "$out_dir/SUMMARY.md"; echo
+fi
 echo "→ fill the results table in $task_dir/README.md; per-run provenance is in $ctx"
