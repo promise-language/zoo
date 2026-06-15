@@ -123,15 +123,18 @@ echo "| Session duration | $(( $(date +%s) - start ))s |" >> "$ctx"
 # --- restore the original window size ---
 [[ -n "${orig_size:-}" ]] && printf '\e[8;%s;%st' "${orig_size%% *}" "${orig_size##* }"
 
-# --- redact secrets from the recording before rendering ---
-# The .cast is a stream of terminal ops with ABSOLUTE cursor positions, so a
-# replacement must be the SAME LENGTH as the original or the render desyncs
-# (you get garbage like "edacted>@gmail.com"). So we mask in place: the local part
-# becomes same-length 'x's, keeping @gmail.com. Optional REDACT is masked the same.
+# --- mask secrets in the recording before rendering ---
+# The .cast is a stream of terminal ops with ABSOLUTE cursor positions. Two rules
+# keep the render intact while masking:
+#  1) SAME LENGTH — mask the local part with the same number of 'x's, keep
+#     @gmail.com; a different-length swap desyncs later redraws ("edacted>@...").
+#  2) DON'T EAT ESCAPES — `(?:\e\[...[A-Za-z])?\K` skips a preceding ANSI escape so
+#     the greedy match can't swallow its terminator (e.g. the `m` of a color code)
+#     and corrupt everything rendered after it.
 if [[ -f "$cast" ]]; then
-  perl -i -pe 's/([A-Za-z0-9._%+-]+)(\@gmail\.com)/("x" x length($1)).$2/ge' "$cast"
-  [[ -n "${REDACT:-}" ]] && REDACT="$REDACT" perl -i -pe 's/($ENV{REDACT})/"x" x length($1)/ge' "$cast"
-  echo "masked @gmail.com${REDACT:+ + custom patterns} in the recording (length-preserving)"
+  perl -i -pe 's/(?:\e\[[0-9;?]*[A-Za-z])?\K([A-Za-z0-9._%+-]+)(\@gmail\.com)/("x" x length($1)).$2/ge' "$cast"
+  [[ -n "${REDACT:-}" ]] && REDACT="$REDACT" perl -i -pe 's/(?:\e\[[0-9;?]*[A-Za-z])?\K($ENV{REDACT})/"x" x length($1)/ge' "$cast"
+  echo "masked @gmail.com${REDACT:+ + custom patterns} in the recording (length- + escape-preserving)"
 fi
 
 # --- gif ---
