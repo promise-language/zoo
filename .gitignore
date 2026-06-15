@@ -1,0 +1,6 @@
+# OS / editor
+.DS_Store
+*.swp
+
+# Per run: commit the .pr source + captured output, not compiled binaries.
+# Add specific binary names per run folder as needed.
