@@ -20,11 +20,13 @@ edges, not just the clean wins.
 
 ## How it's organized
 
-Each run is a folder containing:
-
-- a `README.md` with the run's provenance — see [`TEMPLATE.md`](TEMPLATE.md),
-- the generated project (the `.pr` source), and
-- the build/run output (plus an asciinema cast or GIF where there is one).
+Each **task** is a folder with the shared `prompt.md` and a `README.md` results
+table across agents (see [`TEMPLATE.md`](TEMPLATE.md)). Each **agent's run** lands
+in a `<task>-<agent>/` subdir (e.g. `hello-world/hello-world-claude/`) — named so
+that Promise's folder-derived binary is descriptive (`./hello-world-claude`) —
+containing the generated `.pr` source, `context.md` (provenance + how it went),
+and the recording (`transcript.txt`, `demo.gif`). Runs are captured with
+[`bin/record.sh`](bin/record.sh).
 
 ## Honest caveats
 

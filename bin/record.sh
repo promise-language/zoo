@@ -2,19 +2,23 @@
 #
 # record.sh — record an AI agent building a Promise program (one zoo run).
 #
-# Usage:   bin/record.sh <claude|gemini> <run-dir>
+# Usage:   bin/record.sh <claude|gemini> <task-dir>
 #
-# <run-dir> must contain prompt.md (the prompt sent to the agent). Outputs are
-# written into <run-dir>:
+# <task-dir> must contain prompt.md (the prompt sent to the agent). The agent runs
+# in a per-agent subdir named <task>-<agent> (e.g. hello-world/hello-world-claude/)
+# so several agents can do the same task side by side, none can clobber the task's
+# own README.md, and Promise's folder-derived binary name is descriptive
+# (./hello-world-claude, not ./claude). Outputs go into that subdir:
 #   context.md      provenance — date, OS, promise + agent versions, duration
 #   transcript.txt  the agent's stdout
-#   demo.cast       asciinema recording     (if asciinema is installed)
-#   demo.gif        GIF render of the cast   (if agg is installed)
+#   demo.cast       asciinema recording      (if asciinema is installed)
+#   demo.gif        GIF render of the cast    (if agg is installed)
+#   (plus the agent's generated .pr source; the compiled binary is removed)
 #
 # Privacy: any @gmail.com address in the cast/transcript is auto-redacted to
 # <redacted>@gmail.com before the GIF is rendered. To scrub additional secrets,
 # set REDACT (a sed-style alternation):
-#   REDACT='you@work.com|another-secret' bin/record.sh claude <run-dir>
+#   REDACT='you@work.com|another-secret' bin/record.sh claude <task-dir>
 #
 # The `promise` toolchain is required. This script puts ~/.promise/bin on PATH
 # *for this run only* (it does not touch your shell config) and verifies
@@ -33,10 +37,12 @@ PROMISE_BIN="$HOME/.promise/bin"
 
 # --- internal entrypoint: the actual agent run (also invoked inside asciinema) ---
 if [[ "${1:-}" == "__run" ]]; then
-  agent="$2"; dir="$3"
+  agent="$2"; task_dir="$3"
   export PATH="$PROMISE_BIN:$PATH"
-  cd "$dir" || exit 1
-  prompt="$(cat prompt.md)"
+  prompt="$(cat "$task_dir/prompt.md")"
+  sub="$(basename "$task_dir")-$agent"   # e.g. hello-world-claude → folder name = binary name
+  mkdir -p "$task_dir/$sub"
+  cd "$task_dir/$sub" || exit 1
   case "$agent" in
     claude) claude $CLAUDE_FLAGS -p "$prompt" 2>&1 | tee transcript.txt ;;
     gemini) gemini $GEMINI_FLAGS -p "$prompt" 2>&1 | tee transcript.txt ;;
@@ -45,12 +51,14 @@ if [[ "${1:-}" == "__run" ]]; then
 fi
 
 # --- args ---
-agent="${1:-}"; run_dir="${2:-}"
-[[ -n "$agent" && -n "$run_dir" ]] || { echo "usage: $0 <claude|gemini> <run-dir>" >&2; exit 2; }
+agent="${1:-}"; task_dir="${2:-}"
+[[ -n "$agent" && -n "$task_dir" ]] || { echo "usage: $0 <claude|gemini> <task-dir>" >&2; exit 2; }
 [[ "$agent" == "claude" || "$agent" == "gemini" ]] || { echo "error: agent must be 'claude' or 'gemini' (got '$agent')" >&2; exit 2; }
-run_dir="${run_dir%/}"
-[[ -d "$run_dir" ]] || { echo "error: run dir '$run_dir' not found" >&2; exit 2; }
-[[ -f "$run_dir/prompt.md" ]] || { echo "error: $run_dir/prompt.md not found (create it first)" >&2; exit 2; }
+task_dir="${task_dir%/}"
+[[ -d "$task_dir" ]] || { echo "error: task dir '$task_dir' not found" >&2; exit 2; }
+[[ -f "$task_dir/prompt.md" ]] || { echo "error: $task_dir/prompt.md not found (create it first)" >&2; exit 2; }
+out_dir="$task_dir/$(basename "$task_dir")-$agent"   # e.g. hello-world/hello-world-claude
+mkdir -p "$out_dir"
 
 # --- promise prerequisite (on PATH + verified) ---
 export PATH="$PROMISE_BIN:$PATH"
@@ -62,15 +70,16 @@ echo "promise: $(command -v promise) — $promise_ver"
 command -v "$agent" >/dev/null 2>&1 || { echo "error: '$agent' not found on PATH" >&2; exit 1; }
 agent_ver="$("$agent" --version 2>&1 | head -1)"
 echo "agent:   $agent — $agent_ver"
+echo "output:  $out_dir/"
 
 # --- confirm (human-in-the-loop before the unattended run) ---
 echo
-echo "About to run '$agent' UNATTENDED (tool approvals bypassed) in: $run_dir"
+echo "About to run '$agent' UNATTENDED (tool approvals bypassed) in: $out_dir"
 read -r -p "Proceed? [y/N] " ans
 [[ "$ans" == [yY] ]] || { echo "aborted."; exit 1; }
 
 # --- provenance ---
-ctx="$run_dir/context.md"
+ctx="$out_dir/context.md"
 os="$(uname -srm)"
 command -v sw_vers >/dev/null 2>&1 && os="$(sw_vers -productName) $(sw_vers -productVersion) ($(uname -m))"
 {
@@ -85,22 +94,20 @@ command -v sw_vers >/dev/null 2>&1 && os="$(sw_vers -productName) $(sw_vers -pro
 } > "$ctx"
 
 # --- run, recording if asciinema is available ---
-cast="$run_dir/demo.cast"
+cast="$out_dir/demo.cast"
 start=$(date +%s)
-inner="bash $(printf %q "$0") __run $(printf %q "$agent") $(printf %q "$run_dir")"
+inner="bash $(printf %q "$0") __run $(printf %q "$agent") $(printf %q "$task_dir")"
 if command -v asciinema >/dev/null 2>&1; then
   asciinema rec "$cast" --overwrite -c "$inner"
 else
   echo "(asciinema not found — running without a screen recording)"
-  bash "$0" __run "$agent" "$run_dir"
+  bash "$0" __run "$agent" "$task_dir"
 fi
 echo "| Duration | $(( $(date +%s) - start ))s |" >> "$ctx"
 
 # --- redact secrets from the cast + transcript before rendering ---
-# Always: any <local>@gmail.com -> <redacted>@gmail.com (catches a personal login;
-#         leaves @promise-lang.org and other intended addresses alone).
-# Optional: set REDACT='pat1|pat2' to scrub anything else too.
-for f in "$cast" "$run_dir/transcript.txt"; do
+# Always: any <local>@gmail.com -> <redacted>@gmail.com. Optional: REDACT='pat1|pat2'.
+for f in "$cast" "$out_dir/transcript.txt"; do
   [[ -f "$f" ]] || continue
   LC_ALL=C sed -i.bak -E 's/[A-Za-z0-9._%+-]+@gmail\.com/<redacted>@gmail.com/g' "$f"
   [[ -n "${REDACT:-}" ]] && LC_ALL=C sed -i.bak -E "s/(${REDACT})/[redacted]/g" "$f"
@@ -110,10 +117,14 @@ echo "redacted @gmail.com${REDACT:+ + custom patterns} from cast + transcript"
 
 # --- gif ---
 if command -v agg >/dev/null 2>&1 && [[ -f "$cast" ]]; then
-  agg "$cast" "$run_dir/demo.gif" && echo "wrote $run_dir/demo.gif"
+  agg "$cast" "$out_dir/demo.gif" && echo "wrote $out_dir/demo.gif"
 fi
 
+# --- drop the compiled binary (regenerable; keep source + provenance + recording) ---
+bin_path="$out_dir/$(basename "$out_dir")"
+[[ -f "$bin_path" ]] && rm -f "$bin_path" && echo "removed build artifact: $(basename "$bin_path")"
+
 echo
-echo "done — outputs in $run_dir:"
-ls -la "$run_dir"
-echo "→ paste $ctx into the run's README.md; transcript is $run_dir/transcript.txt"
+echo "done — outputs in $out_dir:"
+ls -la "$out_dir"
+echo "→ summarize the result in $task_dir/README.md (per-agent results table); context: $ctx"
