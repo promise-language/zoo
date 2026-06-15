@@ -58,7 +58,15 @@ if [[ "${1:-}" == "__run" ]]; then
     claude) claude $CLAUDE_FLAGS "$prompt" ;;
     gemini) gemini $GEMINI_FLAGS "$prompt" ;;
   esac
-  exit $?
+  rc=$?
+  # Show SUMMARY.md in glow's pager (captured IN the recording): it renders from the
+  # top, full color, -w 0 = no premature wrap, as much as fits the screen. Quit it with
+  # `q` once you've held it long enough (~6s) — that's what ends the recording. The
+  # pager decides how much fits, so there's no cutoff to tune.
+  if [[ -f SUMMARY.md ]] && command -v glow >/dev/null 2>&1; then
+    glow -p -w 0 SUMMARY.md
+  fi
+  exit $rc
 fi
 
 # --- args ---
@@ -167,12 +175,8 @@ ls -la "$out_dir"
 sumry="$out_dir/SUMMARY.md"
 if [[ -f "$sumry" ]]; then
   echo
-  # The agent's TL;DR. Render it nicely if a markdown pager is around; otherwise just
-  # link the file (cmd/ctrl-click to open it in your editor) — raw markdown dumped to
-  # the terminal is noise. (This runs after asciinema stops, so it's intentionally not
-  # in the cast; the agent *writing* SUMMARY.md is what's visible in the recording.)
-  if command -v glow >/dev/null 2>&1; then glow "$sumry"
-  elif command -v mdcat >/dev/null 2>&1; then mdcat "$sumry"; fi
-  echo "the agent's TL;DR → $out_dir_abs/SUMMARY.md   (cmd/ctrl-click to open, or: open $(printf %q "$out_dir_abs/SUMMARY.md"))"
+  # glow's pager already showed the summary during the recording (see __run). Here,
+  # after asciinema has stopped, just link the full file (cmd/ctrl-click to open it).
+  echo "the agent's full TL;DR → $out_dir_abs/SUMMARY.md   (cmd/ctrl-click to open, or: open $(printf %q "$out_dir_abs/SUMMARY.md"))"
 fi
 echo "→ fill the results table in $task_dir/README.md; per-run provenance is in $ctx"
