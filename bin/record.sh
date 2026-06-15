@@ -10,12 +10,16 @@
 # own README.md, and Promise's folder-derived binary name is descriptive
 # (./hello-world-claude, not ./claude). Outputs go into that subdir:
 #   context.md      provenance — date, OS, promise + agent versions, duration
-#   transcript.txt  the agent's stdout
 #   demo.cast       asciinema recording      (if asciinema is installed)
 #   demo.gif        GIF render of the cast    (if agg is installed)
 #   (plus the agent's generated .pr source; the compiled binary is removed)
 #
-# Privacy: any @gmail.com address in the cast/transcript is auto-redacted to
+# The agent runs INTERACTIVELY (its TUI), so the session actually renders in the
+# recording — headless `-p` just shows a blank screen. It's still autonomous
+# (tool approvals bypassed) so there are no approval interruptions; you just watch
+# and, when it's done, exit the agent to stop the recording.
+#
+# Privacy: any @gmail.com address in the recording is auto-redacted to
 # <redacted>@gmail.com before the GIF is rendered. To scrub additional secrets,
 # set REDACT (a sed-style alternation):
 #   REDACT='you@work.com|another-secret' bin/record.sh claude <task-dir>
@@ -23,11 +27,6 @@
 # The `promise` toolchain is required. This script puts ~/.promise/bin on PATH
 # *for this run only* (it does not touch your shell config) and verifies
 # `promise version` before launching the agent.
-#
-# NOTE: the agent runs UNATTENDED with tool-approval bypassed (claude:
-# --dangerously-skip-permissions, gemini: --yolo) so it can run `promise` and
-# write files without prompting. You confirm once before it starts. Edit the
-# *_FLAGS below if you want a different permission posture.
 
 set -uo pipefail
 
@@ -36,6 +35,8 @@ GEMINI_FLAGS="--yolo"
 PROMISE_BIN="$HOME/.promise/bin"
 
 # --- internal entrypoint: the actual agent run (also invoked inside asciinema) ---
+# NOTE: launched interactively (no -p) and NOT piped (no `| tee`) — both would stop
+# the TUI from rendering. The prompt is passed as the seed message.
 if [[ "${1:-}" == "__run" ]]; then
   agent="$2"; task_dir="$3"
   export PATH="$PROMISE_BIN:$PATH"
@@ -44,10 +45,10 @@ if [[ "${1:-}" == "__run" ]]; then
   mkdir -p "$task_dir/$sub"
   cd "$task_dir/$sub" || exit 1
   case "$agent" in
-    claude) claude $CLAUDE_FLAGS -p "$prompt" 2>&1 | tee transcript.txt ;;
-    gemini) gemini $GEMINI_FLAGS -p "$prompt" 2>&1 | tee transcript.txt ;;
+    claude) claude $CLAUDE_FLAGS "$prompt" ;;
+    gemini) gemini $GEMINI_FLAGS "$prompt" ;;
   esac
-  exit "${PIPESTATUS[0]}"
+  exit $?
 fi
 
 # --- args ---
@@ -72,9 +73,14 @@ agent_ver="$("$agent" --version 2>&1 | head -1)"
 echo "agent:   $agent — $agent_ver"
 echo "output:  $out_dir/"
 
-# --- confirm (human-in-the-loop before the unattended run) ---
+# --- put the prompt on the clipboard as a fallback if it isn't auto-seeded ---
+if command -v pbcopy >/dev/null 2>&1; then pbcopy < "$task_dir/prompt.md"; clip="it's on your clipboard — paste with Cmd+V"; else clip="it's in $task_dir/prompt.md"; fi
+
+# --- confirm (you drive the interactive session) ---
 echo
-echo "About to run '$agent' UNATTENDED (tool approvals bypassed) in: $out_dir"
+echo "'$agent' will open INTERACTIVELY in $out_dir (tool approvals bypassed)."
+echo "The prompt should seed automatically; if it doesn't, $clip."
+echo "When the agent finishes, exit it (/exit or Ctrl-D) to stop the recording."
 read -r -p "Proceed? [y/N] " ans
 [[ "$ans" == [yY] ]] || { echo "aborted."; exit 1; }
 
@@ -103,28 +109,28 @@ else
   echo "(asciinema not found — running without a screen recording)"
   bash "$0" __run "$agent" "$task_dir"
 fi
-echo "| Duration | $(( $(date +%s) - start ))s |" >> "$ctx"
+echo "| Session duration | $(( $(date +%s) - start ))s |" >> "$ctx"
 
-# --- redact secrets from the cast + transcript before rendering ---
+# --- redact secrets from the recording before rendering ---
 # Always: any <local>@gmail.com -> <redacted>@gmail.com. Optional: REDACT='pat1|pat2'.
-for f in "$cast" "$out_dir/transcript.txt"; do
-  [[ -f "$f" ]] || continue
-  LC_ALL=C sed -i.bak -E 's/[A-Za-z0-9._%+-]+@gmail\.com/<redacted>@gmail.com/g' "$f"
-  [[ -n "${REDACT:-}" ]] && LC_ALL=C sed -i.bak -E "s/(${REDACT})/[redacted]/g" "$f"
-  rm -f "$f.bak"
-done
-echo "redacted @gmail.com${REDACT:+ + custom patterns} from cast + transcript"
+if [[ -f "$cast" ]]; then
+  LC_ALL=C sed -i.bak -E 's/[A-Za-z0-9._%+-]+@gmail\.com/<redacted>@gmail.com/g' "$cast"
+  [[ -n "${REDACT:-}" ]] && LC_ALL=C sed -i.bak -E "s/(${REDACT})/[redacted]/g" "$cast"
+  rm -f "$cast.bak"
+  echo "redacted @gmail.com${REDACT:+ + custom patterns} from the recording"
+fi
 
 # --- gif ---
 if command -v agg >/dev/null 2>&1 && [[ -f "$cast" ]]; then
   agg "$cast" "$out_dir/demo.gif" && echo "wrote $out_dir/demo.gif"
 fi
 
-# --- drop the compiled binary (regenerable; keep source + provenance + recording) ---
-bin_path="$out_dir/$(basename "$out_dir")"
-[[ -f "$bin_path" ]] && rm -f "$bin_path" && echo "removed build artifact: $(basename "$bin_path")"
+# --- drop compiled binaries (extensionless executables; regenerable) — keep .pr/.md/.cast/.gif/.txt ---
+for f in "$out_dir"/*; do
+  [[ -f "$f" && -x "$f" && "$(basename "$f")" != *.* ]] && rm -f "$f" && echo "removed build artifact: $(basename "$f")"
+done
 
 echo
 echo "done — outputs in $out_dir:"
 ls -la "$out_dir"
-echo "→ summarize the result in $task_dir/README.md (per-agent results table); context: $ctx"
+echo "→ fill the results table in $task_dir/README.md; per-run provenance is in $ctx"
