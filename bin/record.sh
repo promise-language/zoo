@@ -21,9 +21,10 @@
 # runs without interruptions. Watch it, then exit (/exit) to stop the recording.
 # The terminal is sized to REC_COLS x REC_ROWS (default 100x30), then restored.
 #
-# Privacy: any @gmail.com address in the recording is auto-redacted to
-# <redacted>@gmail.com before the GIF is rendered. To scrub additional secrets,
-# set REDACT (a sed-style alternation):
+# Privacy: any @gmail.com address in the recording is masked before the GIF is
+# rendered — the local part becomes same-length 'x's (xxxx@gmail.com). Same length
+# matters: the .cast has absolute cursor positions, so a different-length swap
+# corrupts the render. To mask more, set REDACT (a regex alternation):
 #   REDACT='you@work.com|another-secret' bin/record.sh claude <task-dir>
 #
 # The `promise` toolchain is required. This script puts ~/.promise/bin on PATH
@@ -123,12 +124,14 @@ echo "| Session duration | $(( $(date +%s) - start ))s |" >> "$ctx"
 [[ -n "${orig_size:-}" ]] && printf '\e[8;%s;%st' "${orig_size%% *}" "${orig_size##* }"
 
 # --- redact secrets from the recording before rendering ---
-# Always: any <local>@gmail.com -> <redacted>@gmail.com. Optional: REDACT='pat1|pat2'.
+# The .cast is a stream of terminal ops with ABSOLUTE cursor positions, so a
+# replacement must be the SAME LENGTH as the original or the render desyncs
+# (you get garbage like "edacted>@gmail.com"). So we mask in place: the local part
+# becomes same-length 'x's, keeping @gmail.com. Optional REDACT is masked the same.
 if [[ -f "$cast" ]]; then
-  LC_ALL=C sed -i.bak -E 's/[A-Za-z0-9._%+-]+@gmail\.com/<redacted>@gmail.com/g' "$cast"
-  [[ -n "${REDACT:-}" ]] && LC_ALL=C sed -i.bak -E "s/(${REDACT})/[redacted]/g" "$cast"
-  rm -f "$cast.bak"
-  echo "redacted @gmail.com${REDACT:+ + custom patterns} from the recording"
+  perl -i -pe 's/([A-Za-z0-9._%+-]+)(\@gmail\.com)/("x" x length($1)).$2/ge' "$cast"
+  [[ -n "${REDACT:-}" ]] && REDACT="$REDACT" perl -i -pe 's/($ENV{REDACT})/"x" x length($1)/ge' "$cast"
+  echo "masked @gmail.com${REDACT:+ + custom patterns} in the recording (length-preserving)"
 fi
 
 # --- gif ---
