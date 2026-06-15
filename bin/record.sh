@@ -20,10 +20,10 @@
 #   (plus the generated .pr; the compiled binary is removed)
 #
 # The agent runs INTERACTIVELY (its TUI renders — headless `-p` is blank) in
-# auto-accept-edits mode, and .claude/settings.local.json allows all Bash, so there
-# is NO startup warning and NO mid-run permission dialog (a dialog overlaps the
-# spinner and garbles the recording). Watch it, then /exit to stop. (Bypass mode
-# isn't used: its warning shows every run and can't be suppressed.)
+# auto-accept-edits mode with all Bash pre-granted via --allowedTools, so there is
+# NO startup warning and NO mid-run permission dialog (a dialog overlaps the spinner
+# and garbles the recording). No settings file needed. Watch it, then /exit to stop.
+# (Bypass mode isn't used: its warning shows every run and can't be suppressed.)
 #
 # RECORDING SIZE: set your terminal width yourself BEFORE recording. Don't go too
 # narrow — Claude's header (the account/org line) wraps if it doesn't fit, which
@@ -40,7 +40,7 @@
 
 set -uo pipefail
 
-CLAUDE_FLAGS="--permission-mode acceptEdits"   # no startup warning; .claude/settings.local.json allows all Bash so nothing prompts mid-run
+CLAUDE_FLAGS="--allowedTools Bash --permission-mode acceptEdits"   # grant all Bash via the CLI (no settings file, survives rm -rf); acceptEdits = no startup warning. Keep --allowedTools before another flag so its variadic list doesn't swallow the prompt arg.
 GEMINI_FLAGS="--yolo"
 PROMISE_BIN="$HOME/.promise/bin"
 
@@ -133,6 +133,7 @@ else
   bash "$0" __run "$agent" "$prompt_file" "$out_dir_abs"
 fi
 echo "| Session duration | $(( $(date +%s) - start ))s |" >> "$ctx"
+echo "| Recording | _run \`asciinema upload demo.cast\` and paste the asciinema.org URL here_ |" >> "$ctx"
 
 # --- mask secrets in the recording (length- + escape-preserving) ---
 # Same length keeps cursor positions valid; the (?:\e\[...)?\K skips a preceding
@@ -163,8 +164,15 @@ done
 echo
 echo "done — outputs in $out_dir:"
 ls -la "$out_dir"
-if [[ -f "$out_dir/SUMMARY.md" ]]; then
-  echo; echo "=== SUMMARY.md (the agent's TL;DR — the session closes too fast to read live) ==="
-  cat "$out_dir/SUMMARY.md"; echo
+sumry="$out_dir/SUMMARY.md"
+if [[ -f "$sumry" ]]; then
+  echo
+  # The agent's TL;DR. Render it nicely if a markdown pager is around; otherwise just
+  # link the file (cmd/ctrl-click to open it in your editor) — raw markdown dumped to
+  # the terminal is noise. (This runs after asciinema stops, so it's intentionally not
+  # in the cast; the agent *writing* SUMMARY.md is what's visible in the recording.)
+  if command -v glow >/dev/null 2>&1; then glow "$sumry"
+  elif command -v mdcat >/dev/null 2>&1; then mdcat "$sumry"; fi
+  echo "the agent's TL;DR → $out_dir_abs/SUMMARY.md   (cmd/ctrl-click to open, or: open $(printf %q "$out_dir_abs/SUMMARY.md"))"
 fi
 echo "→ fill the results table in $task_dir/README.md; per-run provenance is in $ctx"
