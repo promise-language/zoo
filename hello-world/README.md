@@ -12,12 +12,17 @@ Each agent's run is in its own `hello-world-<agent>/` subdir: the generated `.pr
 the recording (`demo.cast`, played with the asciinema player), `SUMMARY.md` (the
 agent's TL;DR of how it went), and `context.md` (that run's provenance).
 
+**▶ Watch Claude's run** — faithful playback in the asciinema player (a GIF can't
+render Claude's live TUI cleanly):
+
+[![asciicast](https://asciinema.org/a/oCAihDeFSLD2UqQo.svg)](https://asciinema.org/a/oCAihDeFSLD2UqQo)
+
 ## Results
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | <compiled first try? · iterations · ~time> | [`hello-world-claude/`](hello-world-claude/) |
-| Gemini CLI | <compiled first try? · iterations · ~time, or remove if not run> | [`hello-world-gemini/`](hello-world-gemini/) |
+| Claude Code | ✅ compiled & ran first try (~39s) | [`hello-world-claude/`](hello-world-claude/) · [▶ watch](https://asciinema.org/a/oCAihDeFSLD2UqQo) |
+| Gemini CLI | _not yet run_ | — |
 
 ## Caveats
 
