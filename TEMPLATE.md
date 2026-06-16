@@ -19,7 +19,7 @@ agent's TL;DR of how it went), and `context.md` (that run's provenance).
 | Agent | Outcome | Run |
 |---|---|---|
 | Claude Code | <compiled first try? · N iterations · ~time> | [`<task>-claude/`](<task>-claude/) |
-| Gemini CLI | <…> | [`<task>-gemini/`](<task>-gemini/) |
+| Gemini | <…> | [`<task>-gemini/`](<task>-gemini/) |
 
 ## Caveats
 

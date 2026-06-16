@@ -41,7 +41,7 @@
 set -uo pipefail
 
 CLAUDE_FLAGS="--allowedTools Bash --permission-mode acceptEdits"   # grant all Bash via the CLI (no settings file, survives rm -rf); acceptEdits = no startup warning. Keep --allowedTools before another flag so its variadic list doesn't swallow the prompt arg.
-GEMINI_FLAGS="--yolo"
+AGY_FLAGS="--dangerously-skip-permissions"          # antigravity (agy) — auto-approve all tool requests (Google's Gemini-powered CLI; the old standalone gemini CLI is deprecated)
 PROMISE_BIN="$HOME/.promise/bin"
 
 # --- internal entrypoint: the actual agent run (also invoked inside asciinema) ---
@@ -56,7 +56,7 @@ if [[ "${1:-}" == "__run" ]]; then
   cd "$run_dir" || exit 1
   case "$agent" in
     claude) claude $CLAUDE_FLAGS "$prompt" ;;
-    gemini) gemini $GEMINI_FLAGS "$prompt" ;;
+    gemini) agy $AGY_FLAGS -i "$prompt" ;;   # the "gemini" agent runs via Antigravity's agy CLI; -i = seed prompt + stay interactive
   esac
   rc=$?
   # Show SUMMARY.md in glow's pager (captured IN the recording): it renders from the
@@ -97,9 +97,11 @@ command -v promise >/dev/null 2>&1 || { echo "error: 'promise' not on PATH (look
 promise_ver="$(promise version 2>&1 | head -1)"
 echo "promise: $(command -v promise) — $promise_ver"
 
-# --- agent present + version ---
-command -v "$agent" >/dev/null 2>&1 || { echo "error: '$agent' not found on PATH" >&2; exit 1; }
-agent_ver="$("$agent" --version 2>&1 | head -1)"
+# --- agent present + version --- (the "gemini" agent runs through Google's Antigravity CLI, `agy`)
+case "$agent" in gemini) agent_cmd=agy; agent_cli="Antigravity (agy)" ;; *) agent_cmd="$agent"; agent_cli="" ;; esac
+command -v "$agent_cmd" >/dev/null 2>&1 || { echo "error: '$agent_cmd' not found on PATH" >&2; exit 1; }
+agent_ver="$("$agent_cmd" --version 2>&1 | head -1)"
+[[ -n "$agent_cli" ]] && agent_ver="$agent_cli $agent_ver"   # record the actual CLI in provenance, e.g. "Antigravity (agy) 1.0.8"
 echo "agent:   $agent — $agent_ver"
 echo "output:  $out_dir/"
 
@@ -108,8 +110,8 @@ if command -v pbcopy >/dev/null 2>&1; then pbcopy < "$prompt_file"; clip="the fu
 
 # --- confirm ---
 echo
-echo "'$agent' will open INTERACTIVELY in $out_dir (auto-accept edits; all Bash pre-allowed)."
-echo "Tip: make your terminal wide enough (~110+ cols) first, or Claude's header wraps."
+echo "'$agent' will open INTERACTIVELY in $out_dir (auto-approving tool actions)."
+echo "Tip: make your terminal wide enough (~110+ cols) first, or the agent's header may wrap."
 echo "The prompt should seed automatically; if it doesn't, $clip."
 echo "When the agent finishes, exit it (/exit or Ctrl-D) to stop the recording."
 read -r -p "Proceed? [y/N] " ans

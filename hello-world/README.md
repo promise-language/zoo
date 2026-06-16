@@ -22,7 +22,7 @@ render Claude's live TUI cleanly):
 | Agent | Outcome | Run |
 |---|---|---|
 | Claude Code | ✅ compiled & ran first try (~39s) | [`hello-world-claude/`](hello-world-claude/) · [▶ watch](https://asciinema.org/a/oCAihDeFSLD2UqQo) |
-| Gemini CLI | _not yet run_ | — |
+| Gemini | _not yet run_ | — |
 
 ## Caveats
 
