@@ -155,7 +155,11 @@ if [[ -f "$cast" ]]; then
   # not rendered output, so editing it can't desync the playback) so uploads don't
   # leak $HOME (your username) or the /tmp prompt file path
   HOME_DIR="$HOME" PF="$prompt_file" perl -i -pe 'if ($. == 1) { s/\Q$ENV{PF}\E/<prompt>/g; s/\Q$ENV{HOME_DIR}\E/~/g }' "$cast"
-  echo "masked @gmail.com${REDACT:+ + custom patterns} and scrubbed local paths in the recording"
+  # mask the username everywhere (length-preserving, so it's safe across the whole
+  # cast — unlike the $HOME->~ scrub above): some agents (e.g. antigravity/agy) print
+  # full /Users/<you>/... paths in the TUI body, not just the header
+  u="$(basename "$HOME")"; [[ ${#u} -ge 3 ]] && USER_NAME="$u" perl -i -pe 's/\Q$ENV{USER_NAME}\E/"x" x length($ENV{USER_NAME})/ge' "$cast"
+  echo "masked @gmail.com + username${REDACT:+ + custom patterns} and scrubbed local paths in the recording"
 fi
 
 # --- the asciinema PLAYER renders the TUI faithfully; agg's GIF renderer garbles
