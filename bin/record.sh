@@ -59,6 +59,13 @@ if [[ "${1:-}" == "__run" ]]; then
     gemini) agy $AGY_FLAGS -i "$prompt" ;;   # the "gemini" agent runs via Antigravity's agy CLI; -i = seed prompt + stay interactive
   esac
   rc=$?
+  # Tidy SUMMARY.md BEFORE the end-card displays it, so the RECORDING captures the
+  # clean version (and so does the committed file): rewrite the agent's absolute
+  # file:// links to the run dir as repo-relative (also makes them work on GitHub)
+  # and abbreviate any home path to ~.
+  if [[ -f SUMMARY.md ]]; then
+    HOME_DIR="$HOME" RD="$run_dir" perl -i -pe 's|file://\Q$ENV{RD}\E/||g; s|\Q$ENV{HOME_DIR}\E|~|g' SUMMARY.md
+  fi
   # Show SUMMARY.md in glow's pager (captured IN the recording): it renders from the
   # top, full color, -w 0 = no premature wrap, as much as fits the screen. Quit it with
   # `q` once you've held it long enough (~6s) — that's what ends the recording. The
