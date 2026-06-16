@@ -24,13 +24,18 @@ Each **task** is a folder with its own `prompt.md` (the task-specific ask) and a
 `README.md` results table across agents (see [`TEMPLATE.md`](TEMPLATE.md)). The
 prompt actually sent to each agent wraps that `prompt.md` with the repo-root
 [`PROMPT_PREFIX.md`](PROMPT_PREFIX.md) (shared "learn Promise first" preamble) and
-[`PROMPT_SUFFIX.md`](PROMPT_SUFFIX.md) (shared "write a SUMMARY" postamble). Each
+[`PROMPT_SUFFIX.md`](PROMPT_SUFFIX.md) (shared "write a SUMMARY, and report any
+compiler bug or missing-library gap upstream" postamble). Each
 **agent's run** lands in a `<task>-<agent>/` subdir (e.g.
 `hello-world/hello-world-claude/`) — named so Promise's folder-derived binary is
 descriptive (`./hello-world-claude`) — containing the generated `.pr` source,
 `SUMMARY.md` (the agent's own TL;DR of how it went), `context.md` (provenance), and
 the recording (`demo.cast`, viewed with the [asciinema player](https://docs.asciinema.org/manual/player/)
 — `asciinema play demo.cast`). Runs are captured with [`bin/record.sh`](bin/record.sh).
+A run that trips over a reproducible compiler bug, or needs something Promise doesn't
+have yet, also leaves a `BUG-*.md` or `FEATURE-*.md` in its subdir — so each entry is
+not just "did it build" but feedback on what to fix, what library module to add, or how
+Promise could implement the prompt better.
 
 ## Honest caveats
 

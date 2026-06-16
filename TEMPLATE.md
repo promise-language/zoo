@@ -12,7 +12,9 @@ Prompt: [`prompt.md`](prompt.md) — the task-specific ask, wrapped with the rep
 
 Each agent's run is in its own `<task>-<agent>/` subdir: the generated `.pr`, the
 recording (`demo.cast`, played with the asciinema player), `SUMMARY.md` (the
-agent's TL;DR of how it went), and `context.md` (that run's provenance).
+agent's TL;DR of how it went), `context.md` (that run's provenance), and any
+`BUG-*.md` / `FEATURE-*.md` it filed (a reproducible compiler bug, or a missing
+stdlib module / language feature — captured for filing upstream).
 
 ## Results
 
