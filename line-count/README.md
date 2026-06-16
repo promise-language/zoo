@@ -1,7 +1,7 @@
 # line-count
 
 A concurrent line-counting CLI: the agent builds a tool that takes file paths,
-counts each file's lines on its own green thread, prints per-file counts plus a
+counts each file's lines on its own goroutine, prints per-file counts plus a
 grand total, and skips unreadable files instead of crashing. Probes Promise's
 concurrency model, error operators, and ownership annotations on a real
 multi-file program — and whether the result reads cleanly.
@@ -16,12 +16,17 @@ agent's TL;DR of how it went), `context.md` (that run's provenance), and any
 `BUG-*.md` / `FEATURE-*.md` it filed (a reproducible compiler bug, or a missing
 stdlib module / language feature — captured for filing upstream).
 
+**▶ Watch the run** — faithful playback in the asciinema player (a GIF can't render
+the live TUI cleanly):
+
+[![asciicast](https://asciinema.org/a/htmLPSuiBf1INIHq.svg)](https://asciinema.org/a/htmLPSuiBf1INIHq)
+
 ## Results
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | <compiled first try? · N iterations · ~time> | [`line-count-claude/`](line-count-claude/) |
-| Gemini | <…> | [`line-count-gemini/`](line-count-gemini/) |
+| Claude Code | ⚠️ compiled & ran correctly (20 byte-identical runs) — but only after several iterations past **4 reproducible compiler bugs**, captured as `BUG-*.md` · ~18m | [`line-count-claude/`](line-count-claude/) · [▶ watch](https://asciinema.org/a/htmLPSuiBf1INIHq) |
+| Gemini | _not yet run_ | — |
 
 ## Caveats
 

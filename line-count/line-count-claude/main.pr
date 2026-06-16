@@ -1,0 +1,100 @@
+// line-count — count the lines in each file given on the command line, concurrently.
+//
+// One goroutine per file does the reading; results come back over a channel and
+// are printed in the original argument order, followed by a grand total. A file
+// that cannot be opened or read is reported as skipped rather than crashing the
+// whole run.
+
+use io;
+use os;
+
+// The outcome of counting one file. `ok` separates a real count from a skipped
+// file; `error` carries the reason when `ok` is false. `index` is the file's slot
+// in the argument list — kept so the output can be restored to the input order
+// even though goroutines finish in an arbitrary order. The path itself is not
+// stored here: it already lives in the argument list that main() holds.
+type FileCount {
+    int index;
+    int lines;
+    bool ok;
+    string error;
+}
+
+// Open `path` and count its lines (each newline-terminated line, plus a final
+// unterminated line if present). Failable: any I/O error propagates to the caller.
+//
+// Note: the `?^` on open is an explicit propagate, and also a workaround — a bare
+// `use f := io.File.open(...)` relying on implicit auto-propagation currently
+// crashes the compiler's codegen. See BUG-use-binding-implicit-autopropagate-codegen-panic.md.
+count_lines!(string path) int {
+    use f := io.File.open(path, readonly: true)?^;
+    int lines = 0;
+    while line := f.read_line() {
+        lines += 1;
+    }
+    return lines;
+}
+
+// Count one file, turning any failure into a skipped result instead of an error.
+// This never fails, so a single unreadable file cannot take down the whole batch.
+// `path` is owned (`~string`) so each goroutine has its own copy; it is handed to
+// count_lines (which consumes it) and never needed again here.
+tally(int index, ~string path) FileCount {
+    int lines = count_lines(path) ? e {
+        return FileCount(index: index, lines: 0, ok: false, error: e.message);
+    };
+    return FileCount(index: index, lines: lines, ok: true, error: "");
+}
+
+main() {
+    string[] paths = os.args;
+    int count = paths.len;
+
+    if count == 0 {
+        print_line("line-count — count lines in files, concurrently.");
+        print_line("usage: line-count <file>...");
+        return;
+    }
+
+    // Fan out: one goroutine per file, each sending its result down the channel.
+    // (The go-block + channel form is deliberate: handing an owned string to the
+    //  task-handle form `go tally(...)` currently double-frees — see
+    //  BUG-go-task-handle-consumes-heap-arg-double-free.md.)
+    channel[FileCount] results = channel[FileCount](capacity: count);
+    for index in 0..count {
+        int i = index;
+        string path = paths[i].clone();
+        go {
+            results.send(tally(i, path));
+        };
+    }
+
+    // Gather every result, keyed by its argument index so we can print in order.
+    map[int, FileCount] by_index = {:};
+    for _ in 0..count {
+        if fc := <-results {
+            by_index[fc.index] = fc;
+        }
+    }
+
+    // Report each file in input order, then the grand total over readable files.
+    int total = 0;
+    int skipped = 0;
+    for i in 0..count {
+        if fc := by_index[i] {
+            string &path = paths[i];
+            if fc.ok {
+                total += fc.lines;
+                print_line("{fc.lines.to_string().pad_left(8, ' ')}  {path}");
+            } else {
+                skipped += 1;
+                print_line("{"-".pad_left(8, ' ')}  {path}  (skipped: {fc.error})");
+            }
+        }
+    }
+
+    print_line("{total.to_string().pad_left(8, ' ')}  total");
+    if skipped > 0 {
+        print_line("({skipped} file(s) skipped)");
+    }
+}
