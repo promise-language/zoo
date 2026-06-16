@@ -12,17 +12,19 @@ Each agent's run is in its own `hello-world-<agent>/` subdir: the generated `.pr
 the recording (`demo.cast`, played with the asciinema player), `SUMMARY.md` (the
 agent's TL;DR of how it went), and `context.md` (that run's provenance).
 
-**▶ Watch Claude's run** — faithful playback in the asciinema player (a GIF can't
-render Claude's live TUI cleanly):
+**▶ Watch both runs** — faithful playback in the asciinema player (a GIF can't render
+the live TUIs cleanly):
 
-[![asciicast](https://asciinema.org/a/oCAihDeFSLD2UqQo.svg)](https://asciinema.org/a/oCAihDeFSLD2UqQo)
+| Claude Code | Gemini |
+|:---:|:---:|
+| [![asciicast](https://asciinema.org/a/oCAihDeFSLD2UqQo.svg)](https://asciinema.org/a/oCAihDeFSLD2UqQo) | [![asciicast](https://asciinema.org/a/6sfuuqw94GYBUOwu.svg)](https://asciinema.org/a/6sfuuqw94GYBUOwu) |
 
 ## Results
 
 | Agent | Outcome | Run |
 |---|---|---|
 | Claude Code | ✅ compiled & ran first try (~39s) | [`hello-world-claude/`](hello-world-claude/) · [▶ watch](https://asciinema.org/a/oCAihDeFSLD2UqQo) |
-| Gemini | _not yet run_ | — |
+| Gemini | ✅ compiled & ran first try (~41s) | [`hello-world-gemini/`](hello-world-gemini/) · [▶ watch](https://asciinema.org/a/6sfuuqw94GYBUOwu) |
 
 ## Caveats
 
