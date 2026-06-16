@@ -1,4 +1,4 @@
-Please file this upstream at https://github.com/promise-language/promise/issues
+Filed upstream: https://github.com/promise-language/promise/issues/4
 
 # A `` `value `` field mixed with a non-value field crashes codegen instead of giving a diagnostic
 

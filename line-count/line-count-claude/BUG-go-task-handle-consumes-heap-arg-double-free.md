@@ -1,4 +1,4 @@
-Please file this upstream at https://github.com/promise-language/promise/issues
+Filed upstream: https://github.com/promise-language/promise/issues/1
 
 # `go f(arg)` task handle double-frees a heap argument the callee consumes (`fatal: invalid free`)
 

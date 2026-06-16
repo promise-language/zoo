@@ -1,4 +1,4 @@
-Please file this upstream at https://github.com/promise-language/promise/issues
+Filed upstream: https://github.com/promise-language/promise/issues/2
 
 # Plain `string p` parameter consumes its argument — contradicts the guide ("plain `T` param is a borrow")
 

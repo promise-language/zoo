@@ -1,4 +1,4 @@
-Please file this upstream at https://github.com/promise-language/promise/issues
+Filed upstream: https://github.com/promise-language/promise/issues/3
 
 # `use x := failable()` with implicit error auto-propagation crashes codegen
 

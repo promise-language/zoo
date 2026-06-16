@@ -28,6 +28,13 @@ the live TUI cleanly):
 | Claude Code | ⚠️ compiled & ran correctly (20 byte-identical runs) — but only after several iterations past **4 reproducible compiler bugs**, captured as `BUG-*.md` · ~18m | [`line-count-claude/`](line-count-claude/) · [▶ watch](https://asciinema.org/a/htmLPSuiBf1INIHq) |
 | Gemini | _not yet run_ | — |
 
+**Compiler bugs this run found** — each minimized (with a verified "compiles fine" control) and filed upstream:
+
+- [#1](https://github.com/promise-language/promise/issues/1) — `go f(arg)` task-handle double-frees a consumed heap argument
+- [#2](https://github.com/promise-language/promise/issues/2) — plain `string p` parameter consumes, contradicting the guide
+- [#3](https://github.com/promise-language/promise/issues/3) — `use x := failable()` codegen panic
+- [#4](https://github.com/promise-language/promise/issues/4) — `value` field beside a heap field codegen panic
+
 ## Caveats
 
 - **Non-deterministic** — each run is "what happened that time," not a verbatim repro.
