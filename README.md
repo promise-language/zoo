@@ -45,6 +45,17 @@ Promise could implement the prompt better.
   the language is evolving fast, so older runs may not build on newer epochs.
 - **Early.** Promise is under active development and not production-ready.
 
+## Attribution
+
+Some tasks are inspired by work done elsewhere; where they are, the task's own
+`README.md` gives full credit and links the source. In particular,
+[`mini-git/`](mini-git/) is inspired by the MiniGit exercise from
+[`ai-coding-lang-bench`](https://github.com/mame/ai-coding-lang-bench) by mame
+(Yusuke Endoh). The zoo's prompts are written from scratch — we don't reproduce
+others' task specs or test suites — and because the language, harness, and run
+conditions all differ, **zoo runs are never comparable to the benchmarks that
+inspired them.**
+
 ## License
 
 Dual-licensed **Apache-2.0 OR MIT** (at your option), matching the Promise project
