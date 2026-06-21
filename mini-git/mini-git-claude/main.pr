@@ -1,0 +1,481 @@
+// mini-git — a tiny content-addressed version control tool, written in Promise.
+//
+// Everything lives under a hidden `.minigit/` directory in the current folder:
+//
+//   .minigit/objects/<blob-hash>   raw file bytes, content-addressed (FNV-1a)
+//   .minigit/commits/<commit-id>   one commit, stored as canonical text
+//   .minigit/HEAD                  id of the current commit (absent = none yet)
+//   .minigit/index                 staging area: "<filename>\t<blob-hash>" lines
+//
+// A commit id is the FNV-1a hash of the commit's own canonical text, so ids are
+// reproducible: the same staged content + message + parent + time hashes the same.
+//
+// A note on ownership: `string` is a move type, so read-only parameters are
+// declared `string&` (borrow) and `.clone()` is used when an owned copy is needed
+// — e.g. to hand a value to a standard-library call that consumes its argument.
+
+use io;
+use os;
+use path;
+
+// --- Filesystem wrappers -----------------------------------------------------
+// The std io/path calls consume their string arguments; these borrow-friendly
+// wrappers clone as needed so callers can keep their paths.
+
+path_exists(string& p) bool          { return io.File.exists(p.clone()); }
+dir_exists(string& p) bool           { return io.Dir.exists(p.clone()); }
+read_text!(string& p) string         { return io.File.read_content(p.clone()); }
+write_text!(string& p, string& c)    { io.File.write_content(p.clone(), c.clone()); }
+remove_file!(string& p)              { io.File.remove(p.clone()); }
+make_dirs!(string& p)                { io.Dir.make_all(p.clone()); }
+
+// --- Repository layout -------------------------------------------------------
+
+get repo_dir string => ".minigit";
+
+objects_dir() string { return path.join(repo_dir, "objects"); }
+commits_dir() string { return path.join(repo_dir, "commits"); }
+head_path() string   { return path.join(repo_dir, "HEAD"); }
+index_path() string  { return path.join(repo_dir, "index"); }
+
+blob_path(string& hash) string { return path.join(objects_dir(), hash.clone()); }
+commit_path(string& id) string { return path.join(commits_dir(), id.clone()); }
+
+// --- Content hashing (FNV-1a, 64-bit) ----------------------------------------
+
+// Deterministic, dependency-free hash. Renders as 16 lowercase hex digits.
+fnv1a_hex(u8[]& data) string {
+    u64 hash = 0xcbf29ce484222325u64;
+    u64 prime = 0x100000001b3u64;
+    for i in 0..data.len {
+        u8 b = data[i];
+        hash = hash ^ (b as u64);
+        hash = hash * prime;
+    }
+    return hash.to_string(base: 16, width: 16, fill: '0');
+}
+
+// --- Raw byte I/O ------------------------------------------------------------
+
+// Read a whole file as raw bytes (binary-safe; never decoded as text).
+read_all_bytes!(string& path) u8[] {
+    use f := io.File.open(path.clone(), readonly: true);
+    u8[] out = u8[]();
+    u8[] chunk = u8[].filled(0u8, count: 65536);
+    for {
+        int n = f.read(chunk);
+        if n == 0 { break; }
+        for i in 0..n { out.push(chunk[i]); }
+    }
+    return out;
+}
+
+// Write raw bytes to a file, creating or truncating it.
+write_all_bytes!(string& path, u8[]& bytes) {
+    use f := io.File.create(path.clone());
+    int off = 0;
+    while off < bytes.len {
+        int n = f.write(bytes[off:]);
+        off += n;
+    }
+}
+
+// --- Small string helper -----------------------------------------------------
+
+// Split on the first occurrence of `sep`; the separator stays out of both parts.
+// If `sep` is absent, the whole string is the left part and the right is empty.
+split_first(string& s, string& sep) (string, string) {
+    if i := s.index_of(sep.clone()) {
+        return (s[:i], s[i + sep.len:]);
+    }
+    return (s.clone(), "");
+}
+
+// --- Staging area (the index) ------------------------------------------------
+
+load_index!() map[string, string] {
+    map[string, string] idx = {:};
+    string p = index_path();
+    // Single return: an early `return idx` here would trip a move-analysis bug
+    // (see BUG-branch-return-moves-variable.md), so the body is guarded instead.
+    if path_exists(p) {
+        string content = read_text(p);
+        for line in content.split("\n") {
+            if line.is_empty { continue; }
+            (name, hash) := split_first(line, "\t");
+            idx[name] = hash;
+        }
+    }
+    return idx;
+}
+
+save_index!(map[string, string]& idx) {
+    Builder b = Builder();
+    for name in sort[string](idx.keys()) {
+        if hash := idx[name.clone()] {
+            b.write_string(name);
+            b.write_string("\t");
+            b.write_string(hash);
+            b.write_string("\n");
+        }
+    }
+    string p = index_path();
+    string text = b.to_string();
+    write_text(p, text);
+}
+
+clear_staging!() {
+    string p = index_path();
+    if path_exists(p) { remove_file(p); }
+}
+
+// --- HEAD pointer ------------------------------------------------------------
+
+read_head!() string {
+    string p = head_path();
+    if !path_exists(p) { return ""; }
+    string s = read_text(p);
+    return s.trim();
+}
+
+write_head!(string& id) {
+    string p = head_path();
+    write_text(p, id);
+}
+
+// --- Commits -----------------------------------------------------------------
+
+type Commit {
+    string id;
+    string parent;                  // "" for the root commit
+    string timestamp;               // Unix seconds, kept as text
+    string message;
+    map[string, string] files;      // filename -> blob hash
+}
+
+// Canonical text form. Files are sorted so the same tree always hashes the same.
+build_commit_text(string& parent, string& timestamp, string& message,
+                  map[string, string]& files) string {
+    Builder b = Builder();
+    b.write_string("parent ");  b.write_string(parent.clone());    b.write_string("\n");
+    b.write_string("time ");    b.write_string(timestamp.clone()); b.write_string("\n");
+    b.write_string("message "); b.write_string(message.clone());   b.write_string("\n");
+    for name in sort[string](files.keys()) {
+        if hash := files[name.clone()] {
+            b.write_string("file ");
+            b.write_string(hash);
+            b.write_string(" ");
+            b.write_string(name);
+            b.write_string("\n");
+        }
+    }
+    return b.to_string();
+}
+
+commit_exists(string& id) bool {
+    string p = commit_path(id);
+    return path_exists(p);
+}
+
+load_commit!(string& id) Commit {
+    string p = commit_path(id);
+    string content = read_text(p);
+    string parent = "";
+    string timestamp = "";
+    string message = "";
+    map[string, string] files = {:};
+    for line in content.split("\n") {
+        if line.is_empty { continue; }
+        if line.starts_with("parent ") {
+            parent = line[7:];
+        } else if line.starts_with("time ") {
+            timestamp = line[5:];
+        } else if line.starts_with("message ") {
+            message = line[8:];
+        } else if line.starts_with("file ") {
+            string rest = line[5:];
+            (hash, name) := split_first(rest, " ");
+            files[name] = hash;
+        }
+    }
+    return Commit(id: id.clone(), parent: parent, timestamp: timestamp,
+                  message: message, files: files);
+}
+
+// Current wall-clock time, in Unix seconds.
+// NOTE: Promise has no wall-clock API yet (std has only a monotonic Instant, and
+// the `time` catalog module is unimplemented), so we shell out to `date`.
+// See FEATURE-wallclock-time.md.
+now_timestamp!() string {
+    r := os.execute("date", ["+%s"]);
+    return r.standard_output.trim();
+}
+
+// --- Error reporting ---------------------------------------------------------
+
+// Report an expected failure and exit non-zero. `msg` is plain text.
+die(string& msg) {
+    string m = msg.clone();
+    print_line("mini-git: {m}");
+    os.exit_process(1);
+}
+
+require_repo() {
+    if !io.Dir.exists(repo_dir) {
+        die("not a mini-git repository (run 'mini-git init' first)");
+    }
+}
+
+// --- Subcommands -------------------------------------------------------------
+
+cmd_init!() {
+    if io.Dir.exists(repo_dir) {
+        print_line("mini-git: repository already exists");
+        return;
+    }
+    make_dirs(objects_dir());
+    make_dirs(commits_dir());
+    print_line("Initialized empty mini-git repository in .minigit/");
+}
+
+cmd_add!(string[]& a) {
+    require_repo();
+    if a.len < 2 { die("usage: mini-git add <file>"); }
+    string file = a[1];
+    if !path_exists(file) { die("no such file: {file}"); }
+
+    u8[] bytes = read_all_bytes(file);
+    string hash = fnv1a_hex(bytes);
+    string bp = blob_path(hash);
+    if !path_exists(bp) { write_all_bytes(bp, bytes); }
+
+    map[string, string] idx = load_index();
+    idx[file.clone()] = hash.clone();
+    save_index(idx);
+    print_line("added {file}  ({hash})");
+}
+
+cmd_rm!(string[]& a) {
+    require_repo();
+    if a.len < 2 { die("usage: mini-git rm <file>"); }
+    string file = a[1];
+
+    map[string, string] idx = load_index();
+    if !idx.contains(file.clone()) { die("'{file}' is not staged"); }
+    idx.remove(file.clone());
+    save_index(idx);
+    print_line("removed {file}");
+}
+
+cmd_status!() {
+    require_repo();
+    map[string, string] idx = load_index();
+    if idx.is_empty {
+        print_line("nothing staged");
+        return;
+    }
+    print_line("Staged files:");
+    for name in sort[string](idx.keys()) {
+        print_line("  {name}");
+    }
+}
+
+cmd_commit!(string[]& a) {
+    require_repo();
+    if a.len < 3 || a[1] != "-m" {
+        die("usage: mini-git commit -m <message>");
+    }
+    string message = a[2];
+
+    map[string, string] idx = load_index();
+    if idx.is_empty { die("nothing to commit"); }
+
+    string parent = read_head();
+    string timestamp = now_timestamp();
+    string text = build_commit_text(parent, timestamp, message, idx);
+    string id = fnv1a_hex(text.bytes());
+
+    string cp = commit_path(id);
+    write_text(cp, text);
+    write_head(id);
+    clear_staging();
+    print_line("committed {id}");
+}
+
+cmd_log!() {
+    require_repo();
+    string id = read_head();
+    if id.is_empty {
+        print_line("no commits yet");
+        return;
+    }
+    while !id.is_empty {
+        Commit c = load_commit(id);
+        string cid = c.id;
+        string when = c.timestamp;
+        string msg = c.message;
+        print_line("commit {cid}");
+        print_line("date   {when}");
+        print_line("    {msg}");
+        print_line("");
+        id = c.parent;
+    }
+}
+
+cmd_show!(string[]& a) {
+    require_repo();
+    if a.len < 2 { die("usage: mini-git show <commit>"); }
+    string id = a[1];
+    if !commit_exists(id) { die("unknown commit: {id}"); }
+
+    Commit c = load_commit(id);
+    string cid = c.id;
+    string when = c.timestamp;
+    string msg = c.message;
+    print_line("commit {cid}");
+    print_line("date   {when}");
+    print_line("message {msg}");
+    print_line("files:");
+    for name in sort[string](c.files.keys()) {
+        if hash := c.files[name.clone()] {
+            print_line("  {hash}  {name}");
+        }
+    }
+}
+
+cmd_diff!(string[]& a) {
+    require_repo();
+    if a.len < 3 { die("usage: mini-git diff <commit-a> <commit-b>"); }
+    string ida = a[1];
+    string idb = a[2];
+    if !commit_exists(ida) { die("unknown commit: {ida}"); }
+    if !commit_exists(idb) { die("unknown commit: {idb}"); }
+
+    Commit ca = load_commit(ida);
+    Commit cb = load_commit(idb);
+
+    // Union of filenames across both commits, sorted for deterministic output.
+    string[] all = [];
+    Set[string] seen = Set[string]();
+    for name in ca.files.keys() {
+        if !seen.contains(name.clone()) { seen.add(name.clone()); all.push(name); }
+    }
+    for name in cb.files.keys() {
+        if !seen.contains(name.clone()) { seen.add(name.clone()); all.push(name); }
+    }
+
+    bool any = false;
+    for name in sort[string](all) {
+        string? ha = ca.files[name.clone()];
+        string? hb = cb.files[name.clone()];
+        if ha is absent && hb is present {
+            print_line("added     {name}");
+            any = true;
+        } else if ha is present && hb is absent {
+            print_line("removed   {name}");
+            any = true;
+        } else {
+            string x = ha!;
+            string y = hb!;
+            if x != y {
+                print_line("modified  {name}");
+                any = true;
+            }
+        }
+    }
+    if !any { print_line("no differences"); }
+}
+
+cmd_checkout!(string[]& a) {
+    require_repo();
+    if a.len < 2 { die("usage: mini-git checkout <commit>"); }
+    string id = a[1];
+    if !commit_exists(id) { die("unknown commit: {id}"); }
+
+    Commit c = load_commit(id);
+    for name in sort[string](c.files.keys()) {
+        if hash := c.files[name.clone()] {
+            string dir = path.parent(name.clone());
+            if dir != "." && !dir_exists(dir) { make_dirs(dir); }
+            string bp = blob_path(hash);
+            u8[] bytes = read_all_bytes(bp);
+            write_all_bytes(name, bytes);
+        }
+    }
+    write_head(id);
+    clear_staging();
+    print_line("checked out {id}");
+}
+
+cmd_reset!(string[]& a) {
+    require_repo();
+    if a.len < 2 { die("usage: mini-git reset <commit>"); }
+    string id = a[1];
+    if !commit_exists(id) { die("unknown commit: {id}"); }
+
+    write_head(id);
+    clear_staging();
+    print_line("reset to {id}");
+}
+
+print_usage() {
+    print_line("mini-git — a tiny content-addressed version control tool");
+    print_line("");
+    print_line("usage: mini-git <command> [args]");
+    print_line("");
+    print_line("commands:");
+    print_line("  init                        create a repository here");
+    print_line("  add <file>                  stage a file");
+    print_line("  rm <file>                   unstage a file");
+    print_line("  status                      list staged files");
+    print_line("  commit -m <message>         record staged files as a commit");
+    print_line("  log                         show the commit history");
+    print_line("  show <commit>               show one commit's details");
+    print_line("  diff <commit-a> <commit-b>  compare two commits");
+    print_line("  checkout <commit>           restore files from a commit");
+    print_line("  reset <commit>              move HEAD without touching files");
+}
+
+// --- Entry point -------------------------------------------------------------
+
+dispatch!() {
+    string[] a = os.args;
+    if a.is_empty {
+        print_usage();
+        return;
+    }
+    string cmd = a[0];
+    if cmd == "init" {
+        cmd_init();
+    } else if cmd == "add" {
+        cmd_add(a);
+    } else if cmd == "rm" {
+        cmd_rm(a);
+    } else if cmd == "status" {
+        cmd_status();
+    } else if cmd == "commit" {
+        cmd_commit(a);
+    } else if cmd == "log" {
+        cmd_log();
+    } else if cmd == "show" {
+        cmd_show(a);
+    } else if cmd == "diff" {
+        cmd_diff(a);
+    } else if cmd == "checkout" {
+        cmd_checkout(a);
+    } else if cmd == "reset" {
+        cmd_reset(a);
+    } else if cmd == "help" || cmd == "-h" || cmd == "--help" {
+        print_usage();
+    } else {
+        die("unknown command '{cmd}' (try 'mini-git help')");
+    }
+}
+
+main() {
+    dispatch() ? e {
+        string m = e.message;
+        print_line("mini-git: {m}");
+        os.exit_process(1);
+    };
+}

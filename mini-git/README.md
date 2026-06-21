@@ -43,8 +43,14 @@ numbers.
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | _not yet run_ | — |
+| Claude Code | ⚠️ built all 10 subcommands; logic correct on the first run — but compiled only after iterating past **2 reproducible compiler bugs** + several guide/compiler mismatches, and worked around **1 missing feature** (wall-clock time). Captured as `BUG-*.md` / `FEATURE-*.md` · ~45m | [`mini-git-claude/`](mini-git-claude/) · [▶ watch](https://asciinema.org/a/R0W7ESiJeloezs86) |
 | Gemini | _not yet run_ | — |
+
+**What this run found** — each minimized (with a verified "compiles fine" control) and captured for upstream:
+
+- [`BUG-bare-failable-call-in-interpolation.md`](mini-git-claude/BUG-bare-failable-call-in-interpolation.md) — a bare auto-propagating failable call inside string interpolation (`"{twice(21)}"`) yields the zero value for `int` and **stack-overflows** for `string`
+- [`BUG-branch-return-moves-variable.md`](mini-git-claude/BUG-branch-return-moves-variable.md) — move analysis isn't branch-sensitive: `if c { return s; } return s;` is rejected as "use of moved variable"
+- [`FEATURE-wallclock-time.md`](mini-git-claude/FEATURE-wallclock-time.md) — no wall-clock time in `std`; the `time` catalog module is documented but unimplemented (commit timestamps shell out to `date`)
 
 ## Caveats
 
