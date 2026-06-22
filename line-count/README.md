@@ -19,7 +19,7 @@ stdlib module / language feature — captured for filing upstream).
 **▶ Watch the run** — faithful playback in the asciinema player (a GIF can't render
 the live TUI cleanly):
 
-[![asciicast](https://asciinema.org/a/htmLPSuiBf1INIHq.svg)](https://asciinema.org/a/htmLPSuiBf1INIHq)
+<a href="https://asciinema.org/a/htmLPSuiBf1INIHq"><img src="https://asciinema.org/a/htmLPSuiBf1INIHq.svg" width="50%" alt="asciicast — line-count, Claude Code"></a>
 
 ## Results
 

@@ -16,6 +16,14 @@ agent's TL;DR of how it went), `context.md` (that run's provenance), and any
 `BUG-*.md` / `FEATURE-*.md` it filed (a reproducible compiler bug, or a missing
 stdlib module / language feature — captured for filing upstream).
 
+**▶ Watch the run** — faithful playback in the asciinema player (a GIF can't render
+the live TUI cleanly):
+
+<!-- Single run: link the asciinema SVG, sized to ~half width via the img width attr.
+     For multiple runs, use a side-by-side table of these <a><img></a> blocks instead
+     (a 2-col table already renders each at ~half width — drop the width attr there). -->
+<a href="https://asciinema.org/a/<CAST_ID>"><img src="https://asciinema.org/a/<CAST_ID>.svg" width="50%" alt="asciicast — <task>, <agent>"></a>
+
 ## Results
 
 | Agent | Outcome | Run |
