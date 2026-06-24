@@ -17,7 +17,7 @@ the live TUIs cleanly):
 
 | Claude Code | Gemini |
 |:---:|:---:|
-| [![asciicast](https://asciinema.org/a/oCAihDeFSLD2UqQo.svg)](https://asciinema.org/a/oCAihDeFSLD2UqQo) | [![asciicast](https://asciinema.org/a/6sfuuqw94GYBUOwu.svg)](https://asciinema.org/a/6sfuuqw94GYBUOwu) |
+| <!-- cast:claude --><a href="https://asciinema.org/a/oCAihDeFSLD2UqQo"><img src="https://asciinema.org/a/oCAihDeFSLD2UqQo.svg" alt="asciicast — hello-world, Claude Code"></a><!-- /cast:claude --> | <!-- cast:gemini --><a href="https://asciinema.org/a/6sfuuqw94GYBUOwu"><img src="https://asciinema.org/a/6sfuuqw94GYBUOwu.svg" alt="asciicast — hello-world, Gemini"></a><!-- /cast:gemini --> |
 
 ## Results
 

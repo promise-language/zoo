@@ -70,7 +70,39 @@ echo "  description:"; printf '%s\n' "$desc" | sed 's/^/    /'
 read -r -p "Proceed? [y/N] " ans
 [[ "$ans" == [yY] ]] || { echo "aborted."; exit 1; }
 
-asciinema upload "$cast" --title "$title" --description "$desc" --visibility "$VISIBILITY"
+# capture the upload output so we can auto-stamp the URL (still shown to the user)
+out="$(asciinema upload "$cast" --title "$title" --description "$desc" --visibility "$VISIBILITY" 2>&1)"; rc=$?
+printf '%s\n' "$out"
+[[ $rc -eq 0 ]] || { echo "upload failed (rc=$rc) — nothing stamped." >&2; exit $rc; }
+url="$(printf '%s\n' "$out" | grep -oE 'https://asciinema\.org/a/[A-Za-z0-9]+' | head -1)"
+[[ -n "$url" ]] || { echo "uploaded, but couldn't parse the asciinema URL — stamp it by hand." >&2; exit 0; }
+
+# --- auto-stamp the URL into context.md + the README (no manual paste) -----------
+# Replaces the 'pending' placeholders left by record.sh / record.sh --rerecord:
+#   context.md  -> the "| Recording |" row value
+#   README      -> this agent's cast embed (between its cast markers, honoring an
+#                  optional `width=` on the marker) + this agent's "▶ watch" link.
+ctx="$task_dir/$task-$agent/context.md"
+readme="$task_dir/README.md"
+if [[ -f "$ctx" ]]; then
+  URL="$url" perl -i -pe 's{^(\| Recording \|).*$}{"$1 $ENV{URL} |"}e' "$ctx"
+  echo "stamped Recording URL into $ctx"
+fi
+if [[ -f "$readme" ]]; then
+  AGENT="$agent" AGENT_LABEL="$label" TASK="$task" URL="$url" perl -0777 -i -pe '
+    my $A=$ENV{AGENT}; my $L=$ENV{AGENT_LABEL}; my $TASK=$ENV{TASK}; my $U=$ENV{URL};
+    # cast marker -> <a><img> embed (style-aware: multi-line block vs inline table cell)
+    s{(<!-- cast:\Q$A\E\b([^>]*)-->)(.*?)(<!-- /cast:\Q$A\E -->)}{
+      my ($o,$attrs,$inner,$c)=($1,$2,$3,$4);
+      my $w=($attrs=~/width=(\S+)/)?" width=\"$1\"":"";
+      my $img=qq{<a href="$U"><img src="$U.svg"$w alt="asciicast — $TASK, $L"></a>};
+      ($inner=~/\n/) ? "$o\n$img\n$c" : "$o$img$c";
+    }se;
+    # this agent results-row watch link -> the URL (row links to TASK-AGENT/)
+    s{^(\|.*\]\(\Q$TASK\E-\Q$A\E/\).*)$}{ my $r=$1; $r =~ s/(\[▶ watch\]\()[^)]*\)/${1}$U)/; $r }mge;
+  ' "$readme"
+  echo "stamped cast embed + watch link for '$agent' into $readme"
+fi
 echo
-echo "→ paste the URL above into $task_dir/$task-$agent/context.md (the 'Recording' row)"
-echo "  and the $task results table in $task_dir/README.md."
+echo "→ $url is embedded. If this was a re-record, review the '$agent' Outcome cell"
+echo "  (and any findings list) in $readme — that prose is editorial."

@@ -2,7 +2,16 @@
 #
 # record.sh — record an AI agent building a Promise program (one zoo run).
 #
-# Usage:   bin/record.sh <claude|gemini> <task-dir>
+# Usage:   bin/record.sh [--rerecord] <claude|gemini> <task-dir>
+#
+# With --rerecord, replace an existing COMMITTED run in place against a newer
+# toolchain. The old run is preserved via git history — linked from a growing
+# "Prior runs" table (+ a one-line progress aggregate) in the task README and a
+# "Previous runs" section in the run's context.md — then the dir is wiped, the agent
+# re-runs fresh, and THIS agent's cast/watch in the README are reset to a "pending"
+# state that bin/upload.sh stamps with the new recording URL. Only the current run's
+# source + summary stay in-tree; old source/summary/cast live in git history.
+# (Re-record refuses unless the existing run is committed and clean.)
 #
 # <task-dir> must contain prompt.md (the task's specific ask). The prompt actually
 # sent to the agent is PROMPT_PREFIX.md + that prompt.md + PROMPT_SUFFIX.md — a
@@ -76,14 +85,129 @@ if [[ "${1:-}" == "__run" ]]; then
   exit $rc
 fi
 
-# --- args ---
+# --- re-record helpers (only used with --rerecord) ---------------------------
+# A re-record replaces a committed run in place: it relies on git history to keep the
+# old source/summary/cast, so it refuses to run on an untracked or dirty run.
+# rr_preflight_and_capture stashes facts about the run being replaced (RR_* globals),
+# then deletes the dir so the agent runs fresh. rr_finalize (after the run) writes the
+# "Previous runs" lineage into context.md and grows the "Prior runs" table + progress
+# aggregate in the task README, then resets this agent's cast/watch to a "pending
+# upload" state that bin/upload.sh later stamps with the new recording URL.
+rr_preflight_and_capture() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "error: --rerecord needs a git repo" >&2; exit 2; }
+  git ls-files --error-unmatch "$out_dir/context.md" >/dev/null 2>&1 \
+    || { echo "error: no committed run at $out_dir to re-record (expected a tracked context.md)." >&2; exit 2; }
+  [[ -z "$(git status --porcelain -- "$out_dir")" ]] \
+    || { echo "error: $out_dir has uncommitted changes — commit or stash them first." >&2
+         echo "       (re-record deletes the dir and relies on git history to preserve the old run.)" >&2; exit 2; }
+
+  local ctx="$out_dir/context.md" remote
+  RR_RELPATH="$(git -C "$out_dir" rev-parse --show-prefix)"; RR_RELPATH="${RR_RELPATH%/}"   # repo-relative, symlink-safe
+  RR_OLD_SHA="$(git log -1 --format=%H -- "$out_dir")"
+  remote="$(git remote get-url origin 2>/dev/null)"; remote="${remote%.git}"; remote="${remote/git@github.com:/https://github.com/}"
+  RR_OLD_BROWSE="$remote/tree/$RR_OLD_SHA/$RR_RELPATH"
+  RR_OLD_BLOB="$remote/blob/$RR_OLD_SHA/$RR_RELPATH"
+
+  RR_OLD_DATE="$(perl -ne 'if (/^\| Date \| (\S+)/){print $1; last}' "$ctx")"
+  RR_OLD_VER_FULL="$(perl -ne 'if (/^\| Promise version \| (.+?) \|/){print $1; last}' "$ctx")"
+  RR_OLD_VER="$(printf '%s' "$RR_OLD_VER_FULL" | perl -ne 'if (/version\s+(\S+)/ || /\b(20\d\d\.\S+)/){print $1; last}')"
+  RR_OLD_PLAY="$(perl -ne 'if (m{(https://asciinema\.org/a/[A-Za-z0-9]+)}){print $1; last}' "$ctx")"
+  RR_OLD_BUGS="$(git ls-tree -r --name-only "$RR_OLD_SHA" -- "$out_dir" 2>/dev/null | grep -Ec '/BUG-[^/]*\.md$' || true)"
+  # prior "Previous runs" rows already in the old context.md, to carry forward
+  RR_CARRIED_CTX="$(perl -0777 -ne 'if (/\n## Previous runs\b(.*)$/s){my $b=$1; while ($b =~ /^(\|(?!\s*Date\b)(?!\s*:?-).*\|)\s*$/mg){print "$1\n"}}' "$ctx")"
+
+  echo "re-record: replacing committed run at $out_dir"
+  echo "  was: ${RR_OLD_DATE:-?} · Promise ${RR_OLD_VER:-?} · ${RR_OLD_BUGS} BUG file(s) · pinned @ ${RR_OLD_SHA:0:9}"
+  rm -rf "$out_dir"
+}
+
+rr_finalize() {
+  local ctx="$out_dir/context.md" readme="$task_dir/README.md" cur_ver cur_bugs play
+  cur_ver="$(printf '%s' "$promise_ver" | perl -ne 'if (/version\s+(\S+)/ || /\b(20\d\d\.\S+)/){print $1; last}')"
+  cur_bugs="$(find "$out_dir" -maxdepth 1 -name 'BUG-*.md' 2>/dev/null | wc -l | tr -d ' ')"
+
+  # 1) context.md — append/grow the "## Previous runs" lineage (links pinned to old SHA)
+  play=""; [[ -n "$RR_OLD_PLAY" ]] && play="[▶ play]($RR_OLD_PLAY) · "
+  {
+    echo
+    echo "## Previous runs"
+    echo
+    echo "Re-recorded against an updated Promise toolchain. Prior runs' source & summary"
+    echo "are not kept in-tree — reach them at the pinned commit."
+    echo
+    echo "| Date | Promise version | Links |"
+    echo "|---|---|---|"
+    echo "| $RR_OLD_DATE | $RR_OLD_VER_FULL | ${play}[SUMMARY]($RR_OLD_BLOB/SUMMARY.md) · [demo.cast]($RR_OLD_BLOB/demo.cast) · [browse]($RR_OLD_BROWSE) |"
+    [[ -n "$RR_CARRIED_CTX" ]] && printf '%s\n' "$RR_CARRIED_CTX"
+  } >> "$ctx"
+
+  # 2) README — reset this agent's cast→pending + watch→PENDING, then add/grow the
+  #    "## Prior runs" table (newest-first) + one-line aggregate. The perl self-extracts
+  #    any existing Prior-runs rows from the README and recomputes the aggregate.
+  [[ -f "$readme" ]] || { echo "note: no $readme — skipped Prior runs table"; return; }
+  AGENT="$agent" AGENT_LABEL="$agent_label" TASK="$task" TASKDIR="$task_dir" \
+  OLD_DATE="$RR_OLD_DATE" OLD_VER="$RR_OLD_VER" OLD_BUGS="$RR_OLD_BUGS" \
+  OLD_PLAY="$RR_OLD_PLAY" OLD_BROWSE="$RR_OLD_BROWSE" \
+  CUR_VER="$cur_ver" CUR_BUGS="$cur_bugs" \
+  perl -0777 -i -pe '
+    my $A=$ENV{AGENT}; my $TASK=$ENV{TASK}; my $TD=$ENV{TASKDIR};
+    # cast marker -> pending note (style-aware: multi-line block vs inline table cell)
+    s{(<!-- cast:\Q$A\E\b[^>]*-->)(.*?)(<!-- /cast:\Q$A\E -->)}{
+      my ($o,$inner,$c)=($1,$2,$3);
+      my $note="_▶ recording pending — run `bin/upload.sh $A $TD` to embed it_";
+      ($inner =~ /\n/) ? "$o\n$note\n$c" : "$o$note$c";
+    }se;
+    # this agent results-row watch link -> PENDING (row links to TASK-AGENT/)
+    s{^(\|.*\]\(\Q$TASK\E-\Q$A\E/\).*)$}{ my $r=$1; $r =~ s/(\[▶ watch\]\()[^)]*\)/${1}PENDING)/; $r }mge;
+    # add/grow "## Prior runs": superseded run as newest row + recomputed aggregate
+    my $L=$ENV{AGENT_LABEL};
+    my $play=($ENV{OLD_PLAY} ne "") ? "[▶ play]($ENV{OLD_PLAY}) · " : "";
+    my $newrow="| $L | $ENV{OLD_DATE} | $ENV{OLD_VER} | $ENV{OLD_BUGS} | ${play}[browse]($ENV{OLD_BROWSE}) |";
+    my @rows;
+    if (s/\n(## Prior runs\b.*?)(?=\n## Caveats)//s) {
+      my $blk=$1;
+      while ($blk =~ /^(\|(?!\s*Agent\b)(?!\s*:?-).*\|)\s*$/mg) { push @rows,$1; }
+    }
+    unshift @rows,$newrow;
+    my @tl=reverse @rows;
+    my @bugseq=map { (split /\s*\|\s*/,$_)[4] } @tl; push @bugseq,$ENV{CUR_BUGS};
+    my $voldest=(split /\s*\|\s*/,$tl[0])[3];
+    my $N=scalar(@rows)+1;
+    my $agg="> **$N runs** · Promise $voldest→$ENV{CUR_VER} · compiler bugs hit ".join("→",@bugseq);
+    my $hdr="| Agent | Date | Promise | Bugs | Links |\n|---|---|---|---|---|";
+    my $block="\n## Prior runs\n\n$agg\n\n$hdr\n".join("\n",@rows)."\n";
+    s/(?=\n## Caveats)/$block/ or $_ .= $block;
+  ' "$readme"
+  echo "updated $readme — Prior runs table + progress aggregate; $agent cast/watch reset to pending"
+}
+
+# --- args (optional --rerecord / -r before the positional args) ---
+rerecord=0; pos=()
+for a in "$@"; do
+  case "$a" in
+    --rerecord|-r) rerecord=1 ;;
+    *) pos+=("$a") ;;
+  esac
+done
+set -- "${pos[@]:-}"
 agent="${1:-}"; task_dir="${2:-}"
-[[ -n "$agent" && -n "$task_dir" ]] || { echo "usage: $0 <claude|gemini> <task-dir>" >&2; exit 2; }
+[[ -n "$agent" && -n "$task_dir" ]] || { echo "usage: $0 [--rerecord] <claude|gemini> <task-dir>" >&2; exit 2; }
 [[ "$agent" == "claude" || "$agent" == "gemini" ]] || { echo "error: agent must be 'claude' or 'gemini' (got '$agent')" >&2; exit 2; }
+case "$agent" in claude) agent_label="Claude Code" ;; gemini) agent_label="Gemini" ;; esac
 task_dir="${task_dir%/}"
+task="$(basename "$task_dir")"
 [[ -d "$task_dir" ]] || { echo "error: task dir '$task_dir' not found" >&2; exit 2; }
 [[ -f "$task_dir/prompt.md" ]] || { echo "error: $task_dir/prompt.md not found (create it first)" >&2; exit 2; }
-out_dir="$task_dir/$(basename "$task_dir")-$agent"
+out_dir="$task_dir/$task-$agent"
+
+if (( rerecord )); then
+  rr_preflight_and_capture                       # captures RR_* then wipes the dir
+elif git ls-files --error-unmatch "$out_dir/context.md" >/dev/null 2>&1; then
+  echo "error: a committed run already exists at $out_dir." >&2
+  echo "       to replace it against a newer toolchain (preserving history), re-record:" >&2
+  echo "         $0 --rerecord $agent $task_dir" >&2
+  exit 2
+fi
 mkdir -p "$out_dir"
 out_dir_abs="$(cd "$out_dir" && pwd)"   # absolute — the agent run cd's here
 
@@ -117,6 +241,7 @@ if command -v pbcopy >/dev/null 2>&1; then pbcopy < "$prompt_file"; clip="the fu
 
 # --- confirm ---
 echo
+(( rerecord )) && echo "RE-RECORD — the previous run was captured for history; the agent runs fresh below."
 echo "'$agent' will open INTERACTIVELY in $out_dir (auto-approving tool actions)."
 echo "Tip: make your terminal wide enough (~110+ cols) first, or the agent's header may wrap."
 echo "The prompt should seed automatically; if it doesn't, $clip."
@@ -182,6 +307,10 @@ for f in "$out_dir"/*; do
   [[ -f "$f" && -x "$f" && "$(basename "$f")" != *.* ]] && rm -f "$f" && echo "removed build artifact: $(basename "$f")"
 done
 
+# --- re-record: write the history lineage into context.md + grow the README's
+#     "Prior runs" table/aggregate + reset this agent's cast/watch to pending ---
+(( rerecord )) && rr_finalize
+
 echo
 echo "done — outputs in $out_dir:"
 ls -la "$out_dir"
@@ -192,4 +321,10 @@ if [[ -f "$sumry" ]]; then
   # after asciinema has stopped, just link the full file (cmd/ctrl-click to open it).
   echo "the agent's full TL;DR → $out_dir_abs/SUMMARY.md   (cmd/ctrl-click to open, or: open $(printf %q "$out_dir_abs/SUMMARY.md"))"
 fi
-echo "→ fill the results table in $task_dir/README.md; per-run provenance is in $ctx"
+if (( rerecord )); then
+  echo "→ re-record done. NEXT: bin/upload.sh $agent $task_dir  — stamps the new recording URL"
+  echo "  into context.md + the README cast/watch (replacing the 'pending' placeholders)."
+  echo "  Then review the '$agent' row Outcome + any findings list in $task_dir/README.md (editorial)."
+else
+  echo "→ fill the results table in $task_dir/README.md; per-run provenance is in $ctx"
+fi

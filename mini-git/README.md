@@ -19,7 +19,9 @@ language feature — captured for filing upstream).
 **▶ Watch the run** — faithful playback in the asciinema player (a GIF can't render
 the live TUI cleanly):
 
+<!-- cast:claude width=50% -->
 <a href="https://asciinema.org/a/R0W7ESiJeloezs86"><img src="https://asciinema.org/a/R0W7ESiJeloezs86.svg" width="50%" alt="asciicast — mini-git, Claude Code"></a>
+<!-- /cast:claude -->
 
 ## Attribution — and why this is *not* a benchmark
 

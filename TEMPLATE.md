@@ -19,17 +19,21 @@ stdlib module / language feature — captured for filing upstream).
 **▶ Watch the run** — faithful playback in the asciinema player (a GIF can't render
 the live TUI cleanly):
 
-<!-- Single run: link the asciinema SVG, sized to ~half width via the img width attr.
-     For multiple runs, use a side-by-side table of these <a><img></a> blocks instead
-     (a 2-col table already renders each at ~half width — drop the width attr there). -->
-<a href="https://asciinema.org/a/<CAST_ID>"><img src="https://asciinema.org/a/<CAST_ID>.svg" width="50%" alt="asciicast — <task>, <agent>"></a>
+<!-- Each run's cast lives between its agent's cast markers; bin/upload.sh fills in the
+     <a><img> embed once the recording is uploaded (and bin/record.sh --rerecord resets
+     it to this pending note). `width=50%` on the marker = a single ~half-width cast.
+     For multiple runs side by side, put each agent's marker block in its own cell of a
+     2-col table and DROP `width=` (a 2-col table already renders each at ~half width). -->
+<!-- cast:claude width=50% -->
+_▶ recording pending — run `bin/upload.sh claude <task>` to embed it_
+<!-- /cast:claude -->
 
 ## Results
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | <compiled first try? · N iterations · ~time> | [`<task>-claude/`](<task>-claude/) |
-| Gemini | <…> | [`<task>-gemini/`](<task>-gemini/) |
+| Claude Code | <compiled first try? · N iterations · ~time> | [`<task>-claude/`](<task>-claude/) · [▶ watch](PENDING) |
+| Gemini | <…> | [`<task>-gemini/`](<task>-gemini/) · [▶ watch](PENDING) |
 
 ## Caveats
 
