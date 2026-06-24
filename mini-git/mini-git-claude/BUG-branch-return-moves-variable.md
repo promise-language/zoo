@@ -3,7 +3,7 @@ Please file this upstream at https://github.com/promise-language/promise/issues
 # Move inside a branch that `return`s poisons the variable on the fall-through path
 
 ## Version / platform
-- `promise version 2026.1 (commit 134062029f2156f915b98b41fb991d44eb23b0ae)`
+- `promise version 2026.1 (channel stable, commit 4bf7e22)`
 - macOS 26.5.1 (arm64), Darwin 25.5.0
 
 ## Summary
@@ -13,10 +13,15 @@ the compiler then reports the variable as "moved" on the path *after* the `if` �
 even though that path is only reached when the branch did **not** execute (so no
 move actually happened on it).
 
-This rejects the very common "early-out, then keep using the value" shape.
+This rejects the very common "early-out, then keep using the value" shape, e.g.
+returning an accumulator early on one condition and continuing to build it
+otherwise.
+
+(Still reproduces on commit `4bf7e22`; this was hit again building mini-git's
+`load_index`, which wanted `if !exists { return idx; } …; return idx;`.)
 
 ## Minimal repro
-`bug.pr`:
+`repro.pr`:
 ```promise
 f(bool cond) string {
     string s = "x";
@@ -28,15 +33,15 @@ main() { print_line(f(false)); }
 
 Build:
 ```sh
-promise build bug.pr
+promise build repro.pr
 ```
 
 ## Verbatim output
 ```
-bug.pr:4:9: use of moved variable 's'
-      if cond { return s; }
-  >   return s;
-             ^
+repro.pr:4:11: use of moved variable 's'
+        if cond { return s; }
+  >     return s;
+               ^
 ```
 Expected: compiles; `f(false)` returns `"x"`.
 
@@ -50,23 +55,14 @@ Expected: compiles; `f(false)` returns `"x"`.
 | same shape with a `map[string,string]` instead of `string` | **rejected** (any move type) |
 
 ## Best guess at cause
-The flow analysis joins the post-`if` state by treating a move that occurs on a
-*diverging* (returning/never-returning) branch as if it reached the merge point.
-A branch that ends in `return` (or otherwise can't fall through) should contribute
-nothing to the moved-set at the merge, but here it does, marking the variable
-moved for the continuation.
+The move checker unions the moved-set across the branch and the fall-through
+edge instead of intersecting along control flow. A `return` (or any divergent
+terminator) inside the branch should remove that branch's moves from what reaches
+the code after the `if`, because the only way to fall through is for the branch
+not to have run.
 
-## Workaround used in mini-git
-Avoid `return <localvar>` inside an early branch when the same local is used
-afterward. In `load_index()` the empty-repo early return was replaced with a
-guarded body and a single trailing `return idx;`:
-
-```promise
-map[string, string] idx = {:};
-string p = index_path();
-if path_exists(p) {
-    string content = read_text(p);
-    for line in content.split("\n") { /* ... fill idx ... */ }
-}
-return idx;            // single return; no branch moves idx
-```
+## Workaround
+Restructure so the value is never moved on a returning branch — invert the guard
+into a single non-returning `if`, use `else`, or clone in the early-return branch.
+mini-git's `load_index` uses the inverted-guard form:
+`if io.File.exists(INDEX) { … fill idx … } return idx;`.

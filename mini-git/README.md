@@ -20,7 +20,7 @@ language feature — captured for filing upstream).
 the live TUI cleanly):
 
 <!-- cast:claude width=50% -->
-<a href="https://asciinema.org/a/R0W7ESiJeloezs86"><img src="https://asciinema.org/a/R0W7ESiJeloezs86.svg" width="50%" alt="asciicast — mini-git, Claude Code"></a>
+<a href="https://asciinema.org/a/Zm8HoT1IEtIyjAk0"><img src="https://asciinema.org/a/Zm8HoT1IEtIyjAk0.svg" width="50%" alt="asciicast — mini-git, Claude Code"></a>
 <!-- /cast:claude -->
 
 ## Attribution — and why this is *not* a benchmark
@@ -50,14 +50,23 @@ numbers.
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | ⚠️ built all 10 subcommands; logic correct on the first run — but compiled only after iterating past **2 reproducible compiler bugs** + several guide/compiler mismatches, and worked around **1 missing feature** (wall-clock time). Captured as `BUG-*.md` / `FEATURE-*.md` · ~45m | [`mini-git-claude/`](mini-git-claude/) · [▶ watch](https://asciinema.org/a/R0W7ESiJeloezs86) |
+| Claude Code | ⚠️ built all 10 subcommands; once it compiled, logic was correct on the first run — past **2 reproducible compiler bugs** (one a silent use-after-move soundness hole) + several guide/compiler mismatches. The earlier run's missing-wall-clock-time gap is now **resolved** (`time.DateTime.now()` works). Captured as `BUG-*.md` · ~17m | [`mini-git-claude/`](mini-git-claude/) · [▶ watch](https://asciinema.org/a/Zm8HoT1IEtIyjAk0) |
 | Gemini | _not yet run_ | — |
 
 **What this run found** — each minimized (with a verified "compiles fine" control) and captured for upstream:
 
-- [`BUG-bare-failable-call-in-interpolation.md`](mini-git-claude/BUG-bare-failable-call-in-interpolation.md) — a bare auto-propagating failable call inside string interpolation (`"{twice(21)}"`) yields the zero value for `int` and **stack-overflows** for `string`
-- [`BUG-branch-return-moves-variable.md`](mini-git-claude/BUG-branch-return-moves-variable.md) — move analysis isn't branch-sensitive: `if c { return s; } return s;` is rejected as "use of moved variable"
-- [`FEATURE-wallclock-time.md`](mini-git-claude/FEATURE-wallclock-time.md) — no wall-clock time in `std`; the `time` catalog module is documented but unimplemented (commit timestamps shell out to `date`)
+- [`BUG-map-assign-moves-heap-string.md`](mini-git-claude/BUG-map-assign-moves-heap-string.md) — silent use-after-move: `map[k] = h` for a heap `string` moves the value into the map but doesn't flag `h` as moved; once the map is passed to any function, a later read of `h` returns an empty `string` (a soundness hole — it produced an empty hash in `add`'s success line)
+- [`BUG-branch-return-moves-variable.md`](mini-git-claude/BUG-branch-return-moves-variable.md) — move analysis isn't branch-sensitive: a value moved inside an `if` branch that `return`s is still marked moved on the fall-through path
+
+The earlier run's missing wall-clock-time gap is **resolved** in this toolchain (`time.DateTime.now()` now works), so no `FEATURE-*.md` this run.
+
+## Prior runs
+
+> **2 runs** · Promise 2026.1→2026.1 · compiler bugs hit 2→2
+
+| Agent | Date | Promise | Bugs | Links |
+|---|---|---|---|---|
+| Claude Code | 2026-06-18 | 2026.1 | 2 | [▶ play](https://asciinema.org/a/R0W7ESiJeloezs86) · [browse](https://github.com/promise-language/zoo/tree/2f0a4df9a956c86d12b2119c7ca2fd13c04f836e/mini-git/mini-git-claude) |
 
 ## Caveats
 
