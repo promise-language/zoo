@@ -8,8 +8,9 @@
 # contains private info — an un-masked @gmail.com (or any other email), your home
 # path or username, or a /tmp prompt path. record.sh masks/scrubs all of these
 # automatically, so a clean recording passes; this is the safety net before the
-# cast goes public. On success it uploads with a title + description and prints
-# the recording URL (paste it into the run's context.md "Recording" row).
+# cast goes public. On success it uploads with a title + a description that includes
+# the task's prompt.md, then auto-stamps the returned URL into the run's context.md
+# ("Recording" row) and the task README (the agent's cast embed + "▶ watch" link).
 
 set -uo pipefail
 
@@ -60,6 +61,21 @@ maintainable code — learned it from the toolchain (\`promise --help\`,
 From the [Promise Zoo](https://github.com/promise-language/zoo): a gallery of real
 programs built in Promise by AI agents — each with its prompt, the agent and
 model, the Promise version, and an honest account of how the run went."
+
+# append the task-specific prompt (it's wrapped at run time with the shared
+# PROMPT_PREFIX/PROMPT_SUFFIX — link those rather than repeat them on every page)
+if [[ -f "$task_dir/prompt.md" ]]; then
+  repo="https://github.com/promise-language/zoo/blob/main"
+  desc="$desc
+
+---
+
+**The task prompt** — the task-specific ask. At run time it's wrapped with the shared
+[\`PROMPT_PREFIX.md\`]($repo/PROMPT_PREFIX.md) (learn Promise first) and
+[\`PROMPT_SUFFIX.md\`]($repo/PROMPT_SUFFIX.md) (write a SUMMARY, report bugs upstream):
+
+$(cat "$task_dir/prompt.md")"
+fi
 
 # --- confirm + upload (publishing externally — review first) ---
 echo
