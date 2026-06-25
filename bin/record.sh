@@ -82,6 +82,29 @@ if [[ "${1:-}" == "__run" ]]; then
   if [[ -f SUMMARY.md ]] && command -v glow >/dev/null 2>&1; then
     glow -p -w 0 SUMMARY.md
   fi
+  # --- final end-card: a deliberate last frame -----------------------------
+  # glow's pager (above) restores the screen to claude's "Resume this session…"
+  # message when you quit it — a confusing frame to freeze on. Clear it and print
+  # a definitive "END OF CAST" card so a viewer (and asciinema's poster) lands on
+  # something meaningful. context.md exists here (the main flow wrote it before
+  # recording); SUMMARY.md + any BUG-/FEATURE- files were just written by the run.
+  task_name="$(basename "$run_dir")"; task_name="${task_name%-"$agent"}"
+  case "$agent" in claude) lbl="Claude Code" ;; gemini) lbl="Gemini" ;; *) lbl="$agent" ;; esac
+  pver="$(perl -ne 'if (/^\| Promise version \| (.+?) \|/){my $v=$1; my ($s)=$v=~/version\s+(\S+)/; my ($c)=$v=~/commit\s+([0-9a-f]{7})/; print $c ? "$s ($c)" : ($s//$v); last}' context.md 2>/dev/null)"
+  nbug="$(find . -maxdepth 1 -name 'BUG-*.md' 2>/dev/null | wc -l | tr -d ' ')"
+  nfeat="$(find . -maxdepth 1 -name 'FEATURE-*.md' 2>/dev/null | wc -l | tr -d ' ')"
+  B=$'\033[1m'; G=$'\033[32m'; D=$'\033[2m'; Z=$'\033[0m'
+  rule="  ────────────────────────────────────────────────────────────"
+  clear 2>/dev/null || printf '\033[H\033[2J'
+  printf '\n%s\n' "$rule"
+  printf '   %s✓  END OF CAST%s\n' "$G$B" "$Z"
+  printf '%s\n' "$rule"
+  printf '   %s built “%s” in Promise %s\n' "$lbl" "$task_name" "${pver:-?}"
+  printf '   %s%s compiler bug(s) · %s missing-feature note(s) filed%s\n' "$D" "$nbug" "$nfeat" "$Z"
+  [[ -f SUMMARY.md ]] && printf '   full write-up → %sSUMMARY.md%s   ·   provenance → %scontext.md%s\n' "$B" "$Z" "$B" "$Z"
+  printf '   %sPromise Zoo · github.com/promise-language/zoo%s\n' "$D" "$Z"
+  printf '%s\n\n' "$rule"
+  sleep 1.5   # give the end-card real duration so playback/poster lands on it
   exit $rc
 fi
 
