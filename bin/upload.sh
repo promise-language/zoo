@@ -90,6 +90,11 @@ read -r -p "Proceed? [y/N] " ans
 out="$(asciinema upload "$cast" --title "$title" --description "$desc" --visibility "$VISIBILITY" 2>&1)"; rc=$?
 printf '%s\n' "$out"
 [[ $rc -eq 0 ]] || { echo "upload failed (rc=$rc) — nothing stamped." >&2; exit $rc; }
+
+# the local cast is large (~MBs) and redundant once the recording is public —
+# the asciinema.org playback is the source of truth, so drop it post-upload.
+rm -f "$cast" && echo "removed local cast (redundant post-upload): $cast"
+
 url="$(printf '%s\n' "$out" | grep -oE 'https://asciinema\.org/a/[A-Za-z0-9]+' | head -1)"
 [[ -n "$url" ]] || { echo "uploaded, but couldn't parse the asciinema URL — stamp it by hand." >&2; exit 0; }
 
