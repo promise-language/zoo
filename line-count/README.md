@@ -20,14 +20,14 @@ stdlib module / language feature — captured for filing upstream).
 the live TUI cleanly):
 
 <!-- cast:claude width=50% -->
-<a href="https://asciinema.org/a/htmLPSuiBf1INIHq"><img src="https://asciinema.org/a/htmLPSuiBf1INIHq.svg" width="50%" alt="asciicast — line-count, Claude Code"></a>
+<a href="https://asciinema.org/a/dspbubt7DWWZksEJ"><img src="https://asciinema.org/a/dspbubt7DWWZksEJ.svg" width="50%" alt="asciicast — line-count, Claude Code"></a>
 <!-- /cast:claude -->
 
 ## Results
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | ⚠️ compiled & ran correctly (20 byte-identical runs) — but only after several iterations past **4 reproducible compiler bugs**, captured as `BUG-*.md` · ~18m | [`line-count-claude/`](line-count-claude/) · [▶ watch](https://asciinema.org/a/htmLPSuiBf1INIHq) |
+| Claude Code | ⚠️ compiled & ran correctly (20 byte-identical runs) — but only after several iterations past **4 reproducible compiler bugs**, captured as `BUG-*.md` · ~18m | [`line-count-claude/`](line-count-claude/) · [▶ watch](https://asciinema.org/a/dspbubt7DWWZksEJ) |
 | Gemini | _not yet run_ | — |
 
 **Compiler bugs this run found** — each minimized (with a verified "compiles fine" control) and filed upstream:
@@ -36,6 +36,14 @@ the live TUI cleanly):
 - [#2](https://github.com/promise-language/promise/issues/2) — plain `string p` parameter consumes, contradicting the guide
 - [#3](https://github.com/promise-language/promise/issues/3) — `use x := failable()` codegen panic
 - [#4](https://github.com/promise-language/promise/issues/4) — `value` field beside a heap field codegen panic
+
+## Prior runs
+
+> **2 runs** · Promise 2026.0→2026.2 · compiler bugs hit 4→3
+
+| Agent | Date | Promise | Bugs | Links |
+|---|---|---|---|---|
+| Claude Code | 2026-06-16 | 2026.0 | 4 | [▶ play](https://asciinema.org/a/htmLPSuiBf1INIHq) · [browse](https://github.com/promise-language/zoo/tree/e7c1beb14ab2480da3e87cd42ba98cbb19d56a6c/line-count/line-count-claude) |
 
 ## Caveats
 

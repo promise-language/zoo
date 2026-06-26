@@ -1,100 +1,86 @@
-// line-count — count the lines in each file given on the command line, concurrently.
-//
-// One goroutine per file does the reading; results come back over a channel and
-// are printed in the original argument order, followed by a grand total. A file
-// that cannot be opened or read is reported as skipped rather than crashing the
-// whole run.
-
 use io;
 use os;
 
-// The outcome of counting one file. `ok` separates a real count from a skipped
-// file; `error` carries the reason when `ok` is false. `index` is the file's slot
-// in the argument list — kept so the output can be restored to the input order
-// even though goroutines finish in an arbitrary order. The path itself is not
-// stored here: it already lives in the argument list that main() holds.
+// The outcome of counting one file's lines. Carries `index` so results gathered
+// out of order (goroutines finish whenever they finish) can be restored to the
+// order the paths were given on the command line. `ok` distinguishes a real
+// count from a file we skipped because it could not be read.
 type FileCount {
     int index;
-    int lines;
+    string path;
     bool ok;
-    string error;
+    int lines;
+    string reason;          // why it was skipped, when `ok` is false
+
+    // Ordered by command-line position, so a gathered batch sorts back into
+    // the order the user typed.
+    ==(FileCount o) bool => this.index == o.index;
+    <(FileCount o) bool  => this.index < o.index;
 }
 
-// Open `path` and count its lines (each newline-terminated line, plus a final
-// unterminated line if present). Failable: any I/O error propagates to the caller.
-//
-// Note: the `?^` on open is an explicit propagate, and also a workaround — a bare
-// `use f := io.File.open(...)` relying on implicit auto-propagation currently
-// crashes the compiler's codegen. See BUG-use-binding-implicit-autopropagate-codegen-panic.md.
+// Count the lines in one file by streaming it a line at a time. Failable: any
+// I/O error (missing file, permission denied, …) propagates to the caller.
 count_lines!(string path) int {
-    use f := io.File.open(path, readonly: true)?^;
-    int lines = 0;
-    while line := f.read_line() {
-        lines += 1;
+    use file := io.File.open(path, readonly: true);
+    int count = 0;
+    while line := file.read_line() {
+        count += 1;
     }
-    return lines;
+    return count;
 }
 
-// Count one file, turning any failure into a skipped result instead of an error.
-// This never fails, so a single unreadable file cannot take down the whole batch.
-// `path` is owned (`~string`) so each goroutine has its own copy; it is handed to
-// count_lines (which consumes it) and never needed again here.
-tally(int index, ~string path) FileCount {
+// Run one file's count and package the outcome. Recovers from a read error by
+// reporting a skip instead of failing, so one bad path never sinks the batch.
+// Takes ownership of `path` (`move`) because the result holds onto it.
+count_file(int index, string move path) FileCount {
+    string? failure = none;
     int lines = count_lines(path) ? e {
-        return FileCount(index: index, lines: 0, ok: false, error: e.message);
+        failure = e.message.clone();
+        0;
     };
-    return FileCount(index: index, lines: lines, ok: true, error: "");
+    if reason := failure {
+        return FileCount(index: index, path: move path, ok: false, lines: 0, reason: move reason);
+    }
+    return FileCount(index: index, path: move path, ok: true, lines: lines, reason: "");
 }
 
-main() {
-    string[] paths = os.args;
-    int count = paths.len;
+// Right-align a count in an 8-column gutter, wc(1)-style.
+gutter(string s) string => s.pad_left(8, ' ');
 
-    if count == 0 {
-        print_line("line-count — count lines in files, concurrently.");
+main!() {
+    string[] paths = os.args;
+    if paths.is_empty {
         print_line("usage: line-count <file>...");
         return;
     }
 
-    // Fan out: one goroutine per file, each sending its result down the channel.
-    // (The go-block + channel form is deliberate: handing an owned string to the
-    //  task-handle form `go tally(...)` currently double-frees — see
-    //  BUG-go-task-handle-consumes-heap-arg-double-free.md.)
-    channel[FileCount] results = channel[FileCount](capacity: count);
-    for index in 0..count {
-        int i = index;
-        string path = paths[i].clone();
-        go {
-            results.send(tally(i, path));
-        };
+    // One goroutine per file. Each captures its own path (moved in) and the
+    // shared result channel; the channel is the sound way to hand a heap value
+    // back across the goroutine boundary.
+    int file_count = paths.len;
+    ch := channel[FileCount](capacity: file_count);
+    for i, path in paths {
+        go { ch.send(count_file(i, move path)); };
     }
 
-    // Gather every result, keyed by its argument index so we can print in order.
-    map[int, FileCount] by_index = {:};
-    for _ in 0..count {
-        if fc := <-results {
-            by_index[fc.index] = fc;
+    // Gather every result, then restore command-line order.
+    FileCount[] results = [];
+    for _ in 0..file_count {
+        if r := <-ch {
+            results.push(move r);
         }
     }
+    results = sort(results);
 
-    // Report each file in input order, then the grand total over readable files.
+    // Report: one line per file, then the grand total of readable files.
     int total = 0;
-    int skipped = 0;
-    for i in 0..count {
-        if fc := by_index[i] {
-            string &path = paths[i];
-            if fc.ok {
-                total += fc.lines;
-                print_line("{fc.lines.to_string().pad_left(8, ' ')}  {path}");
-            } else {
-                skipped += 1;
-                print_line("{"-".pad_left(8, ' ')}  {path}  (skipped: {fc.error})");
-            }
+    for r in results {
+        if r.ok {
+            print_line("{gutter(r.lines.to_string())}  {r.path}");
+            total += r.lines;
+        } else {
+            print_line("{gutter("skip")}  {r.path}  ({r.reason})");
         }
     }
-
-    print_line("{total.to_string().pad_left(8, ' ')}  total");
-    if skipped > 0 {
-        print_line("({skipped} file(s) skipped)");
-    }
+    print_line("{gutter(total.to_string())}  total");
 }

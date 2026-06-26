@@ -1,80 +1,94 @@
-# line-count — summary
+# Summary
 
 ## What I built
 
-A small command-line tool (`main.pr`) that takes file paths as arguments and counts the
-lines in each, **one goroutine per file**, then prints a per-file count and a grand
-total. Each goroutine sends its result down a `channel[FileCount]`; `main` gathers them
-into a `map[int, FileCount]` keyed by the file's argument index so the output is printed
-in the original argument order even though goroutines finish in any order. Unreadable
-files (missing, no permission, etc.) are caught with a `? e { ... }` handler and reported
-as skipped — one bad path can't crash the run, and the grand total counts only the
-readable files. Scaffolded with `promise init`, built to a single self-contained binary
-with `promise build`.
+A concurrent line-counting CLI (`main.pr`). It reads file paths from `os.args`,
+spawns **one goroutine per file**, and each goroutine streams its file a line at a
+time (`io.File.read_line`) to count lines. Results come back over a `channel`;
+`main` gathers them, sorts by the original command-line index so output is
+deterministic regardless of which goroutine finishes first, then prints a
+right-aligned per-file count plus a grand total. Unreadable files are **skipped
+gracefully**: each goroutine recovers from its own I/O error (`? e { … }`) and
+reports a `skip` line instead of crashing the batch.
 
-Line semantics: it counts each newline-terminated line plus a final unterminated line if
-present (via `io.File.read_line`), so a file ending without a newline still counts its
-last line — slightly different from `wc -l`, which counts newline characters.
+Example run:
+
+```
+       3  /tmp/lc_a.txt
+       2  /tmp/lc_b.txt
+       0  /tmp/lc_empty.txt
+    skip  /tmp/does_not_exist.txt  (no such file or directory)
+      86  main.pr
+      91  total
+```
+
+Built with `promise build` into a single self-contained binary; output is
+byte-identical across 20 runs (verified).
+
+One deliberate semantic choice: I count *lines of text* via `read_line`, so a
+final line with no trailing newline still counts (the `2` for `/tmp/lc_b.txt`,
+which holds `"alpha\nbeta"`). That differs from `wc -l`, which counts newline
+*characters* and would report `1`. Empty file → `0`, as expected either way.
 
 ## Did it compile and run on the first try?
 
-No — the *design* was right early, but it took several iterations to get past the
-language's rough edges (details below). Once it compiled, it ran correctly the first
-time, and 20 back-to-back runs produced byte-identical, correctly-ordered output (no
-races, no crashes).
+No — the program itself is small, but getting data to and from goroutines was a
+minefield. The *final* shape is clean, but I reached it only after hitting **three
+distinct compiler bugs**, all on the goroutine-data-passing surface this task is
+built to exercise. The natural first thing to write — `for path in paths { t := go
+count_file(path); … }` — is broken three different ways depending on how you pass
+the argument:
 
-## Program output
+- pass it **by move** (`go f(move x)`) → heap **double-free** crash in a loop;
+- pass it **by borrow** (`go f(x)`) and await later → **use-after-free**, silently
+  wrong (sometimes empty) results;
+- make the goroutine function **failable** (`go f!()`) → the **compiler panics** in
+  codegen.
 
-```
-$ ./line-count-claude sample/fruits.txt sample/nums.txt sample/empty.txt sample/missing.txt
-       3  sample/fruits.txt
-       4  sample/nums.txt
-       0  sample/empty.txt
-       -  sample/missing.txt  (skipped: no such file or directory)
-       7  total
-(1 file(s) skipped)
-```
-
-With no arguments it prints a short usage message instead.
+What finally works, and reads cleanly, is: a `go { … }` *block* (not the `go
+f(arg)` call form) that captures the path by `move`, calling a **non-failable**
+function that handles its own error, with results returned over a `channel`. That
+sidesteps all three bugs at once. Each is minimized with verified controls and
+written up for upstream (see below).
 
 ## What surprised me / had to work out
 
-Promise isn't in my training data, so I learned it from `promise guide` and
-`promise doc <module>`. Things that bit me:
+- **The error operators are precise and worth respecting.** `?!` is *always*
+  panic, never propagate; in a failable (`!`) function you just call bare and the
+  error auto-propagates. `<-t` on a goroutine yields a *plain* value, so a
+  goroutine's failure has nowhere to go at the await boundary — which is the
+  language nudging you toward "each worker handles its own error and returns a
+  result," exactly what graceful skipping wants.
+- **Ownership across the goroutine boundary is the whole game.** A borrow can't
+  outlive the goroutine, and a `move` consumes the loop variable — both reasonable,
+  but the compiler enforces them *unevenly* here (it correctly blocks moving a
+  still-borrowed value, yet wrongly accepts a borrow escaping into a goroutine).
+  The mental model that works: hand a goroutine **ownership** (via a `move`-capturing
+  `go {}` block) or share via `Ref[T]`; never lend it a borrow.
+- **`sort` via the structural `Ordered` interface is delightful** — define `==` and
+  `<` on `FileCount` and `sort(results)` just works, no comparator plumbing.
+- **Small parser sharp edges:** `slots[idx] = move r;` (a `move` on the RHS of an
+  index-assignment) fails to parse, and `T?[].filled(none, …)` mis-reads the `?` of
+  the optional element type as an error operator. Both were easy to route around
+  (collect-then-`sort` instead of placing by index), so I didn't write them up as
+  full bugs — but they're rough.
 
-- **`error.message` is a getter, not a method.** The guide's own examples write
-  `e.message()`, but the compiler rejects that — it's `e.message` (property syntax).
-- **Concurrency ownership is subtle.** Passing an owned string into the *task-handle*
-  form `t := go f(x); <-t` double-frees and aborts at runtime. I had to fall back to the
-  `go { ch.send(...) }` block + channel form, which is clean. (Bug #1 below.)
-- **The move-checker is not flow-sensitive** the way I expected, and **plain `string p`
-  parameters consume rather than borrow** — directly contradicting the guide. This
-  produced a stream of "use of moved variable" errors on code the guide says is valid,
-  and pushed me to redesign the result struct so it no longer stores the path (the path
-  list already lives in `main`). Explicit `string &p` is the real borrow. (Bug #4 below.)
-- **Three different inputs crashed the *compiler* itself** (Go panics / LLVM-IR errors),
-  rather than producing diagnostics. Each took some bisection to pin to a minimal
-  trigger. (Bugs #2 and #3, plus #1's runtime abort.)
-- Nice surprises: `channel[T]` + `for v in ch`, the `? e { ... }` recovery handler, and
-  `use x := resource` cleanup are genuinely pleasant once you know the gotchas, and the
-  `promise doc` output is accurate and fast to navigate.
+## Rough edges filed for upstream
 
-## Upstream issues to file
+Three `BUG-*.md` files, each with a minimal repro and verified "compiles/runs fine"
+controls — **please submit these**:
 
-I minimized each to the smallest triggering source and verified the "compiles fine"
-controls actually compile. Four files, one issue each — **please submit these**:
+1. **`BUG-go-call-move-heap-arg-double-free.md`** — `go f(move s)` in a loop, where
+   `f` returns a heap value holding the moved `s`, double-frees → `fatal: invalid
+   free (bad header magic)`.
+2. **`BUG-go-call-borrowed-heap-arg-escapes-goroutine-uaf.md`** — a borrowed heap
+   argument passed to `go f(arg)` escapes into the goroutine; accepted with no
+   error, then read after free → non-deterministic wrong/empty results. (Should be
+   a compile error.)
+3. **`BUG-go-spawn-failable-call-codegen-panic.md`** — `go <failable-call>` panics
+   the compiler in codegen (`store operands are not compatible` bare; `non-call
+   expr *ast.ErrorPanicExpr` with `?!`) instead of compiling or diagnosing.
 
-1. `BUG-go-task-handle-consumes-heap-arg-double-free.md` — `t := go f(x); <-t`
-   double-frees a heap argument the callee consumes (`fatal: invalid free`). Workaround:
-   `go { }` block + channel (what this program uses).
-2. `BUG-use-binding-implicit-autopropagate-codegen-panic.md` — `use x := failable()` with
-   implicit auto-propagation panics codegen (`genUseVarDecl`). Workaround: add `?^`.
-3. `BUG-value-field-in-non-value-struct-codegen-panic.md` — a `` `value `` field mixed
-   with a heap field panics codegen instead of giving a diagnostic. Workaround: drop the
-   unnecessary `` `value `` annotations.
-4. `BUG-plain-string-param-consumes-contradicts-guide.md` — plain `string p` consumes its
-   argument, contradicting the guide's "plain `T` param is a borrow." Workaround: use
-   `string &p` for an actual borrow; treat plain params as consuming.
-
-No `FEATURE-*.md`: the standard library had everything the task needed (`os.args`,
-`io.File`, channels, goroutines, `map`). The friction was all bugs/semantics, not gaps.
+No `FEATURE-*.md`: the standard library had everything the task needed
+(`os.args`, `io.File`, channels, goroutines, `sort`). The gaps here are bugs in
+existing features, not missing ones.
