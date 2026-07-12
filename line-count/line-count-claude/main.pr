@@ -1,86 +1,58 @@
 use io;
 use os;
 
-// The outcome of counting one file's lines. Carries `index` so results gathered
-// out of order (goroutines finish whenever they finish) can be restored to the
-// order the paths were given on the command line. `ok` distinguishes a real
-// count from a file we skipped because it could not be read.
-type FileCount {
-    int index;
-    string path;
-    bool ok;
-    int lines;
-    string reason;          // why it was skipped, when `ok` is false
-
-    // Ordered by command-line position, so a gathered batch sorts back into
-    // the order the user typed.
-    ==(FileCount o) bool => this.index == o.index;
-    <(FileCount o) bool  => this.index < o.index;
+// The outcome of counting one file: either a line count, or the reason we
+// couldn't read it. Failures are values, not raised errors, so a single
+// unreadable path never aborts the whole run.
+enum FileResult {
+  Counted(string path, int lines),
+  Skipped(string path, string reason),
 }
 
-// Count the lines in one file by streaming it a line at a time. Failable: any
-// I/O error (missing file, permission denied, …) propagates to the caller.
-count_lines!(string path) int {
-    use file := io.File.open(path, readonly: true);
-    int count = 0;
-    while line := file.read_line() {
-        count += 1;
+// Read one file and count its lines (newline characters, like `wc -l`).
+// Runs on its own goroutine; any I/O error is captured into a Skipped result
+// rather than propagated, so the caller can report it and carry on.
+count_file(string move path) FileResult {
+  string content = io.File.read_content(path)? e {
+    return FileResult.Skipped(path: path.clone(), reason: e.message.clone());
+  };
+
+  int lines = 0;
+  for c in content {
+    if c == '\n' {
+      lines += 1;
     }
-    return count;
+  }
+  return FileResult.Counted(path: move path, lines: lines);
 }
 
-// Run one file's count and package the outcome. Recovers from a read error by
-// reporting a skip instead of failing, so one bad path never sinks the batch.
-// Takes ownership of `path` (`move`) because the result holds onto it.
-count_file(int index, string move path) FileCount {
-    string? failure = none;
-    int lines = count_lines(path) ? e {
-        failure = e.message.clone();
-        0;
-    };
-    if reason := failure {
-        return FileCount(index: index, path: move path, ok: false, lines: 0, reason: move reason);
-    }
-    return FileCount(index: index, path: move path, ok: true, lines: lines, reason: "");
-}
+main() {
+  string[] paths = os.args;
+  if paths.is_empty {
+    print_line("usage: line-count <file>...");
+    return;
+  }
 
-// Right-align a count in an 8-column gutter, wc(1)-style.
-gutter(string s) string => s.pad_left(8, ' ');
+  // Fan out: one goroutine per file, all reading concurrently.
+  Task[FileResult][] tasks = [];
+  for path in paths {
+    tasks.push(go count_file(path.clone()));
+  }
 
-main!() {
-    string[] paths = os.args;
-    if paths.is_empty {
-        print_line("usage: line-count <file>...");
-        return;
+  // Fan in: await each task and tally the grand total. We await in argument
+  // order, so the report is deterministic even though the reads race.
+  int total = 0;
+  for t in tasks {
+    result := <-t;
+    match result {
+      FileResult.Counted(path, lines) => {
+        print_line("{lines}\t{path}");
+        total += lines;
+      },
+      FileResult.Skipped(path, reason) => {
+        print_line("skipped\t{path} ({reason})");
+      },
     }
-
-    // One goroutine per file. Each captures its own path (moved in) and the
-    // shared result channel; the channel is the sound way to hand a heap value
-    // back across the goroutine boundary.
-    int file_count = paths.len;
-    ch := channel[FileCount](capacity: file_count);
-    for i, path in paths {
-        go { ch.send(count_file(i, move path)); };
-    }
-
-    // Gather every result, then restore command-line order.
-    FileCount[] results = [];
-    for _ in 0..file_count {
-        if r := <-ch {
-            results.push(move r);
-        }
-    }
-    results = sort(results);
-
-    // Report: one line per file, then the grand total of readable files.
-    int total = 0;
-    for r in results {
-        if r.ok {
-            print_line("{gutter(r.lines.to_string())}  {r.path}");
-            total += r.lines;
-        } else {
-            print_line("{gutter("skip")}  {r.path}  ({r.reason})");
-        }
-    }
-    print_line("{gutter(total.to_string())}  total");
+  }
+  print_line("{total}\ttotal");
 }

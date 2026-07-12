@@ -1,94 +1,73 @@
 # Summary
 
-## What I built
+A small concurrent line-counter in Promise. It takes file paths as arguments,
+spawns **one goroutine per file** (`go count_file(path.clone())`) so all the
+reads race, then fans in by awaiting each `Task[FileResult]` in argument order —
+so the output stays deterministic even though the reads finish in whatever order.
+Each file reports its line count (newline characters, matching `wc -l`), and a
+grand total is printed at the end. Unreadable files are captured as a `Skipped`
+enum variant rather than a raised error, so a missing path or a directory is
+reported and skipped instead of crashing the run.
 
-A concurrent line-counting CLI (`main.pr`). It reads file paths from `os.args`,
-spawns **one goroutine per file**, and each goroutine streams its file a line at a
-time (`io.File.read_line`) to count lines. Results come back over a `channel`;
-`main` gathers them, sorts by the original command-line index so output is
-deterministic regardless of which goroutine finishes first, then prints a
-right-aligned per-file count plus a grand total. Unreadable files are **skipped
-gracefully**: each goroutine recovers from its own I/O error (`? e { … }`) and
-reports a `skip` line instead of crashing the batch.
+## Did it compile and run first try?
 
-Example run:
+Almost. It **ran correctly the first time it compiled**, but the first `promise
+build` failed on two ownership errors, both inside the file-read error handler:
+
+1. `cannot move 'path' while it is borrowed` — I tried to `move path` into the
+   `Skipped` result *inside* the `? e { ... }` handler of
+   `io.File.read_content(path)`. The borrow of `path` by `read_content` is
+   considered live across its own error handler, so the move is rejected. Fix:
+   `path.clone()` in the (rare) error path, and keep the `move` on the success
+   path where no borrow is outstanding.
+2. `consuming 'e.message' requires 'move e.message'` — reading a `string` field
+   out of the error binding is a move; `e.message.clone()` fixes it.
+
+Both were reasonable borrow-checker messages that pointed straight at the fix.
+
+## Program output
 
 ```
-       3  /tmp/lc_a.txt
-       2  /tmp/lc_b.txt
-       0  /tmp/lc_empty.txt
-    skip  /tmp/does_not_exist.txt  (no such file or directory)
-      86  main.pr
-      91  total
+$ ./line-count-claude three.txt notrail.txt empty.txt five.txt does-not-exist.txt /some/dir
+3	three.txt
+1	notrail.txt
+0	empty.txt
+5	five.txt
+skipped	does-not-exist.txt (no such file or directory)
+skipped	/some/dir (is a directory)
+9	total
 ```
 
-Built with `promise build` into a single self-contained binary; output is
-byte-identical across 20 runs (verified).
-
-One deliberate semantic choice: I count *lines of text* via `read_line`, so a
-final line with no trailing newline still counts (the `2` for `/tmp/lc_b.txt`,
-which holds `"alpha\nbeta"`). That differs from `wc -l`, which counts newline
-*characters* and would report `1`. Empty file → `0`, as expected either way.
-
-## Did it compile and run on the first try?
-
-No — the program itself is small, but getting data to and from goroutines was a
-minefield. The *final* shape is clean, but I reached it only after hitting **three
-distinct compiler bugs**, all on the goroutine-data-passing surface this task is
-built to exercise. The natural first thing to write — `for path in paths { t := go
-count_file(path); … }` — is broken three different ways depending on how you pass
-the argument:
-
-- pass it **by move** (`go f(move x)`) → heap **double-free** crash in a loop;
-- pass it **by borrow** (`go f(x)`) and await later → **use-after-free**, silently
-  wrong (sometimes empty) results;
-- make the goroutine function **failable** (`go f!()`) → the **compiler panics** in
-  codegen.
-
-What finally works, and reads cleanly, is: a `go { … }` *block* (not the `go
-f(arg)` call form) that captures the path by `move`, calling a **non-failable**
-function that handles its own error, with results returned over a `channel`. That
-sidesteps all three bugs at once. Each is minimized with verified controls and
-written up for upstream (see below).
+The counts match `wc -l` exactly. With no arguments it prints a usage line.
 
 ## What surprised me / had to work out
 
-- **The error operators are precise and worth respecting.** `?!` is *always*
-  panic, never propagate; in a failable (`!`) function you just call bare and the
-  error auto-propagates. `<-t` on a goroutine yields a *plain* value, so a
-  goroutine's failure has nowhere to go at the await boundary — which is the
-  language nudging you toward "each worker handles its own error and returns a
-  result," exactly what graceful skipping wants.
-- **Ownership across the goroutine boundary is the whole game.** A borrow can't
-  outlive the goroutine, and a `move` consumes the loop variable — both reasonable,
-  but the compiler enforces them *unevenly* here (it correctly blocks moving a
-  still-borrowed value, yet wrongly accepts a borrow escaping into a goroutine).
-  The mental model that works: hand a goroutine **ownership** (via a `move`-capturing
-  `go {}` block) or share via `Ref[T]`; never lend it a borrow.
-- **`sort` via the structural `Ordered` interface is delightful** — define `==` and
-  `<` on `FileCount` and `sort(results)` just works, no comparator plumbing.
-- **Small parser sharp edges:** `slots[idx] = move r;` (a `move` on the RHS of an
-  index-assignment) fails to parse, and `T?[].filled(none, …)` mis-reads the `?` of
-  the optional element type as an error operator. Both were easy to route around
-  (collect-then-`sort` instead of placing by index), so I didn't write them up as
-  full bugs — but they're rough.
+- **The concurrency model is genuinely pleasant.** `go count_file(...)` returns a
+  `Task[FileResult]`, you collect them into a `Task[FileResult][]`, and `<-t`
+  awaits. The fan-out/fan-in shape is a few lines and reads clearly. Notably,
+  passing an owned `string move path` into a goroutine worked without any of the
+  friction I half-expected around escaping heap values — I just had to hand the
+  goroutine ownership (a `.clone()` off the borrowed loop variable).
+- **A borrow lives across its own error handler.** This is the one non-obvious
+  rule I hit: after `read_content(path)` fails, `path` is still considered
+  borrowed inside the `? e { }` block, so you can't move it out there. Once you
+  know it, cloning in the error branch is a fine idiom (errors are rare), but it
+  surprised me since conceptually the call has already returned by the time the
+  handler runs.
+- **Line-count semantics.** I count `'\n'` characters (so `wc -l` semantics: a
+  final line with no trailing newline isn't counted). Iterating a string with
+  `for c in content` yields `char`s, which made this a clean four-line loop.
 
-## Rough edges filed for upstream
+## Rough edges
 
-Three `BUG-*.md` files, each with a minimal repro and verified "compiles/runs fine"
-controls — **please submit these**:
+Nothing that rises to a compiler bug or a missing feature — no `BUG-*.md` or
+`FEATURE-*.md` this run. One minor ergonomic note, not filed:
 
-1. **`BUG-go-call-move-heap-arg-double-free.md`** — `go f(move s)` in a loop, where
-   `f` returns a heap value holding the moved `s`, double-frees → `fatal: invalid
-   free (bad header magic)`.
-2. **`BUG-go-call-borrowed-heap-arg-escapes-goroutine-uaf.md`** — a borrowed heap
-   argument passed to `go f(arg)` escapes into the goroutine; accepted with no
-   error, then read after free → non-deterministic wrong/empty results. (Should be
-   a compile error.)
-3. **`BUG-go-spawn-failable-call-codegen-panic.md`** — `go <failable-call>` panics
-   the compiler in codegen (`store operands are not compatible` bare; `non-call
-   expr *ast.ErrorPanicExpr` with `?!`) instead of compiling or diagnosing.
-
-No `FEATURE-*.md`: the standard library had everything the task needed
-(`os.args`, `io.File`, channels, goroutines, `sort`). The gaps here are bugs in
-existing features, not missing ones.
+- **`promise run` has no way to forward argv to the program.** `promise run
+  main.pr -- foo.txt` and `promise run . foo.txt` both treat the trailing paths
+  as *additional source files to compile* (you get a parse error on the file's
+  contents), rather than passing them to the program's `os.args`. For a tool that
+  takes file arguments this means you must `promise build` and invoke the binary
+  directly to exercise it. That's exactly what the task asked for, so it wasn't a
+  blocker — but a `promise run <target> -- <args...>` passthrough would make the
+  edit/run loop nicer.

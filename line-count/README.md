@@ -20,14 +20,14 @@ stdlib module / language feature — captured for filing upstream).
 the live TUI cleanly):
 
 <!-- cast:claude width=50% -->
-<a href="https://asciinema.org/a/dspbubt7DWWZksEJ"><img src="https://asciinema.org/a/dspbubt7DWWZksEJ.svg" width="50%" alt="asciicast — line-count, Claude Code"></a>
+<a href="https://asciinema.org/a/jbftIgLkkISzu05r"><img src="https://asciinema.org/a/jbftIgLkkISzu05r.svg" width="50%" alt="asciicast — line-count, Claude Code"></a>
 <!-- /cast:claude -->
 
 ## Results
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | ⚠️ compiled & ran correctly (20 byte-identical runs) — but only after several iterations past **4 reproducible compiler bugs**, captured as `BUG-*.md` · ~18m | [`line-count-claude/`](line-count-claude/) · [▶ watch](https://asciinema.org/a/dspbubt7DWWZksEJ) |
+| Claude Code | ⚠️ compiled & ran correctly (20 byte-identical runs) — but only after several iterations past **4 reproducible compiler bugs**, captured as `BUG-*.md` · ~18m | [`line-count-claude/`](line-count-claude/) · [▶ watch](https://asciinema.org/a/jbftIgLkkISzu05r) |
 | Gemini | _not yet run_ | — |
 
 **Compiler bugs this run found** — each minimized (with a verified "compiles fine" control) and filed upstream:
@@ -39,10 +39,11 @@ the live TUI cleanly):
 
 ## Prior runs
 
-> **2 runs** · Promise 2026.0→2026.2 · compiler bugs hit 4→3
+> **3 runs** · Promise 2026.0→2026.3 · compiler bugs hit 4→3→0
 
 | Agent | Date | Promise | Bugs | Links |
 |---|---|---|---|---|
+| Claude Code | 2026-06-26 | 2026.2 | 3 | [▶ play](https://asciinema.org/a/dspbubt7DWWZksEJ) · [browse](https://github.com/promise-language/zoo/tree/550a37d9ff4a6a3099301a88806324f4bbfa280c/line-count/line-count-claude) |
 | Claude Code | 2026-06-16 | 2026.0 | 4 | [▶ play](https://asciinema.org/a/htmLPSuiBf1INIHq) · [browse](https://github.com/promise-language/zoo/tree/e7c1beb14ab2480da3e87cd42ba98cbb19d56a6c/line-count/line-count-claude) |
 
 ## Caveats
