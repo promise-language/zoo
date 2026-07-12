@@ -1,103 +1,169 @@
-# mini-git — build summary
+# mini-git in Promise — summary
 
 ## What I built
-A self-contained "mini-git" in a single Promise source file (`main.pr`),
-scaffolded with `promise init` and compiled to one binary with `promise build`.
-It implements all ten subcommands: `init`, `add`, `rm`, `status`, `commit -m`,
-`log`, `show`, `diff`, `checkout`, and `reset`.
 
-All state lives on disk under `.minigit/`:
-- `objects/<hash>` — raw file bytes, content-addressed with FNV-1a (64-bit, 16
-  hex digits). Reads and writes go through a byte-level path (`File.read`/`write`
-  over `u8[]`), so blobs are binary-safe — verified by round-tripping a 5 KB
-  `/dev/urandom` file through `add` → `commit` → `checkout` byte-for-byte
-  (matching SHA-256).
-- `commits/<id>` — each commit as canonical text (`parent`, `time`, the sorted
-  `file <hash> <name>` list, then a `message` sentinel and the message). A
-  commit's id is the FNV-1a of that exact text, so ids are reproducible from
-  content.
-- `HEAD` — the current commit id; `index` — the staging area.
+A self-contained content-addressed VCS in a single file (`main.pr`, ~380 lines), scaffolded
+with `promise init` and built to one binary with `promise build`. All ten subcommands work:
+`init`, `add`, `rm`, `status`, `commit -m`, `log`, `show`, `diff`, `checkout`, `reset`.
 
-Output is deterministic: filenames and a commit's files are always sorted, and
-every failure case in the spec (missing file, empty staging area, already-init'd
-repo, unknown commit id, unstaging something not staged, no repo) prints a clear
-`mini-git: …` message and exits with code 1. (Already-initialized is reported but
-exits 0, since the spec calls that "exit cleanly.")
+State lives on disk under `.minigit/` — `objects/<hash>` (blobs), `commits/<id>`, `HEAD`,
+and `index` (the staging area) — so it works across separate runs. Content addressing is
+FNV-1a/64 over raw bytes rendered as 16 hex digits; a commit's id is the hash of its own
+serialized body, so ids are reproducible. Files are read and written as raw `u8[]`, so the
+store is binary-safe: I round-tripped a file containing NUL bytes and invalid UTF-8
+(`\x00\x01\x02\xff\xfe\x80`) plus an empty file and a UTF-8 file, and all three came back
+byte-identical through `checkout`. I also re-derived every blob hash and commit id with an
+independent Python FNV-1a implementation to confirm the content addressing is right.
+Listings are sorted by name, so output is deterministic.
 
 ## Did it compile and run on the first try?
-No — but once it compiled, the logic was correct on the first run, and the only
-runtime defect was a cosmetic empty-string print traced to a compiler bug (below).
-The compile errors I worked through were all real language rules I had to learn,
-since Promise isn't in my training data:
-- **Module-level constants are getters.** `string REPO = ".minigit";` at top level
-  is a syntax error; the working form is `get REPO string => ".minigit";`.
-- **`sort` can't infer its type argument** from a `string[]` — it needs explicit
-  `sort[string](xs)`.
-- **Bit shifts are type-strict**: `u64 >> int` is rejected ("cannot use int as
-  u64"); the shift amount must be `u64` too.
-- **`is absent` narrows the optional** on the path after the guard, so a later
-  `message!` then fails with "unwrap requires an optional expression" — you just
-  use `message` directly.
-- **Struct construction consumes its fields**: owned locals need an explicit
-  `move` per named arg, and a borrowed parameter needs `.clone()`
-  (`Commit(id: id.clone(), parent: move parent, …)`).
 
-## Program output (representative session)
+**No.** Roughly four rounds of compile errors, then two genuine compiler bugs that only
+showed up at runtime.
+
+The compile errors were all my own fault and the diagnostics were good:
+- trailing commas in multi-line call arguments are rejected;
+- struct construction **consumes** its field values, so a borrowed parameter can't be stored
+  in a field — it needs `move` on the parameter or an explicit `.clone()`;
+- `sort()` couldn't infer its type argument from `map.keys()` directly (`sort[string](…)`
+  or binding to a typed local first both work).
+
+The two runtime bugs were the interesting part, and **both were silent** — the program did
+the right work and then either lost the error or corrupted the heap:
+
+1. **`match` arms silently swallow errors** (`BUG-match-arm-drops-failable.md`). My CLI
+   dispatch was a `match` with bare expression arms (`"add" => cmd_add(...)`). Every failure
+   case — missing file, empty staging area, unknown commit, unstaged file, no repo — printed
+   *nothing* and exited *0*. The errors were raised correctly and then vanished on the way
+   out of the `match`. A bare failable call in a match **expression** arm doesn't get the
+   auto-propagation transform; the same call in a `{ block }` arm works fine. The same defect
+   in *value* position crashes the compiler outright (`panic: insertvalue elem type mismatch,
+   expected i64, got { i1, i64, i8* }`). Workaround: every dispatch arm is a `{ block }`.
+
+2. **`sort()` on a borrowed vector double-frees** (`BUG-sort-borrowed-vector-double-free.md`).
+   `minigit commit` wrote the commit correctly, printed `committed <id> (2 file(s))`, and then
+   aborted with `fatal: invalid free (bad header magic)` (exit 134). `sort[T](T[] vec)` takes a
+   **shared borrow** but returns a vector aliasing the caller's buffer; moving that into an
+   owned struct field gives the buffer two owners. Memory-unsafe with no `unsafe`, no `move`,
+   and no diagnostic. Workaround: `Commit.record` takes `Entry[] move files` (which is the
+   honest signature anyway — the commit owns its entries).
+
+Both are minimized to a few lines with a full does/doesn't-trigger table, and I verified the
+repros fail and the controls compile before writing them down.
+
+## Program output
+
 ```
-$ mini-git init
-Initialized empty mini-git repository in .minigit/
-$ mini-git add notes.txt
-added notes.txt  (2925835410388969)
-$ mini-git status
-Staged files:
-  notes.txt
-$ mini-git commit -m "initial notes"
-committed 992adfcc4c20b653
-$ mini-git commit -m "add a third line"      # after editing + re-adding notes.txt
-committed 2a4ebebace290ff0
-$ mini-git log
-commit 2a4ebebace290ff0
-date   1782309453
-    add a third line
+$ minigit init
+initialized empty minigit repository in .minigit/
+$ minigit add a.txt
+added a.txt (a9bc80cca21f28b3)
+$ minigit add b.txt
+added b.txt (e277e67d7e50251b)
+$ minigit status
+staged files:
+  a9bc80cca21f28b3  a.txt
+  e277e67d7e50251b  b.txt
+$ minigit commit -m "first commit"
+committed 8c04b1ff8122f984 (2 file(s))
 
-commit 992adfcc4c20b653
-date   1782309453
-    initial notes
+$ minigit commit -m "modify a, add c, drop b"
+committed 043f2fde63215039 (2 file(s))
+$ minigit log
+commit 043f2fde63215039
+date   2026-07-12T09:31:03+00:00
 
-$ mini-git diff 992adfcc4c20b653 2a4ebebace290ff0
-modified notes.txt
-$ mini-git show 2a4ebebace290ff0
-commit  2a4ebebace290ff0
-date    1782309453
-message add a third line
+    modify a, add c, drop b
+
+commit 8c04b1ff8122f984
+date   2026-07-12T09:31:02+00:00
+
+    first commit
+
+$ minigit show 8c04b1ff8122f984
+commit 8c04b1ff8122f984
+date   2026-07-12T09:31:02+00:00
+
+    first commit
+
 files:
-  82c9fe9443eab41a notes.txt
+  a9bc80cca21f28b3  a.txt
+  e277e67d7e50251b  b.txt
+$ minigit diff 8c04b1ff8122f984 043f2fde63215039
+modified  a.txt  a9bc80cca21f28b3 -> 4d0c68f207458ae2
+removed   b.txt  e277e67d7e50251b
+added     c.txt  a6dfc978673f387c
+$ minigit checkout 8c04b1ff8122f984
+checked out 8c04b1ff8122f984 (2 file(s) restored)   # a.txt back to "hello", b.txt restored
+$ minigit reset 043f2fde63215039
+reset to 043f2fde63215039 (working directory untouched)
+
+# failure cases
+$ minigit add nope.txt
+minigit: no such file: 'nope.txt'                    [exit 1]
+$ minigit rm ghost.txt
+minigit: 'ghost.txt' is not staged                   [exit 1]
+$ minigit commit -m "empty"
+minigit: nothing staged to commit                    [exit 1]
+$ minigit show deadbeefdeadbeef
+minigit: unknown commit 'deadbeefdeadbeef'           [exit 1]
+$ minigit init
+minigit: repository already exists at .minigit/      [exit 0]
+$ minigit bogus
+minigit: unknown command 'bogus' + usage             [exit 2]
 ```
-`checkout` and `reset` were exercised the same way: `checkout` restores a
-commit's recorded files to disk and moves HEAD (and clears staging); `reset`
-moves HEAD only and leaves a dirtied working tree untouched — both verified by
-inspecting file contents afterward.
 
-## What surprised me / Promise feedback
-Mostly positive: the failable-error operators (`?`, `?^`, bare auto-propagation
-in `!` functions) made the error paths terse and readable; `use f := File.open(…)`
-auto-closing is lovely; byte-level file I/O over `u8[]` is clean; and
-`time.DateTime.now()` works (a prior run on an earlier 2026.1 build had to file a
-missing-wallclock-time gap — that's now resolved, so no FEATURE file this time).
+## What surprised me / had to work out
 
-Two genuine compiler bugs slowed me down — both filed separately, please submit:
+**Flow-sensitive narrowing is better than I expected.** After
 
-- **`BUG-map-assign-moves-heap-string.md`** — `map[k] = h` where `h` is a
-  heap-allocated string moves the value into the map but doesn't flag `h` as
-  moved; once the map is passed to any function, a later read of `h` returns an
-  empty string. This is what produced an empty hash in `add`'s success line even
-  though the blob and index were written correctly. Worked around with
-  `h.clone()` on insert. This one is a soundness hole (silent use-after-move), so
-  it's the more concerning of the two.
-- **`BUG-branch-return-moves-variable.md`** — moving a value inside an `if` branch
-  that `return`s marks it moved on the fall-through path too, rejecting the common
-  "early-out, then keep using the value" shape. Hit it in `load_index`; worked
-  around by inverting the guard so nothing is moved on a returning branch.
+```promise
+int? split_at = text.index_of("\n\n");
+if split_at is absent { raise error(message: "…"); }
+```
 
-Minor papercut worth a mention: `sort` requiring an explicit type argument for a
-concretely-typed `string[]` felt like it should be inferable.
+`split_at` is narrowed to a plain `int` for the rest of the function, because the `raise`
+diverges — writing `split_at!` afterwards is a *compile error* ("unwrap (!) requires an
+optional expression"). I initially read that error as a bug and went to minimize it; it's
+actually the compiler being smart. Nice. The one wrinkle: narrowing flows into a branch
+**body** but not across an `else if` chain to a later arm, so in a 3-way `if before is absent
+/ else if after is absent / else` the third arm still saw `after` as optional. That
+asymmetry is surprising and cost me a compile cycle.
+
+**Ownership on struct construction is the thing to internalize.** `Type(field: x)` *consumes*
+`x`. Combined with "a borrow parameter cannot be moved out", this means the signature of a
+constructor-ish function is forced by whether the struct keeps the data: `record(string move
+message, …)` rather than `record(string message, …)`. Once that clicked the rest fell out —
+and it's exactly the discipline that would have *prevented* the `sort` double-free if `sort`'s
+own signature were honest (`T[] move vec`).
+
+**The two silent-failure bugs are the real feedback.** Promise's whole pitch is
+static types + ownership, i.e. "the compiler catches this class of thing." Both bugs I hit
+were in that contract: one silently discarded errors in the language's *documented* default
+idiom (bare call auto-propagates), and one produced a heap double-free through a
+memory-safe-looking stdlib call. The `sort` one in particular is a stdlib **signature** bug —
+the type says "I borrow this" and the implementation consumes it. Fixing the signature turns a
+silent heap corruption into a compile error.
+
+**`promise doc <module>` is excellent** and is what made this tractable without the language
+in memory — accurate signatures, getters vs. methods marked, failability marked. Two caveats:
+the `time` module's one-line blurb says "placeholder — pending native PAL support" but
+`time.DateTime.now()` works fine and is what I used for commit timestamps; and the guide shows
+`sort(xs)` inferring its type parameter, which doesn't hold when the argument is `map.keys()`.
+
+**Gap: there is no way to write to stderr** (`FEATURE-no-stderr-writer.md`). `std` gives you
+`print`/`print_line` (stdout only); `io` gives you `read_line`/`read_stdin` (stdin only). The
+only `stderr` in the stdlib is for reading a *subprocess's* stderr. So a CLI cannot put
+diagnostics on stderr — mine go to stdout with a `minigit:` prefix and a correct non-zero exit
+code. Even the non-portable `/dev/stderr` escape hatch fails (`permission denied` on macOS).
+For a language aimed at CLI tooling this is a conspicuous hole; `eprint_line`, or `io.stdout` /
+`io.stderr` as first-class `Writer`s, would fix it (and would also make output testable,
+since `print_line` is unmockable today).
+
+## Files to file upstream
+
+- `BUG-match-arm-drops-failable.md` — bare failable call in a `match` expression arm loses its
+  error: silently swallowed in void position, compiler panic in value position.
+- `BUG-sort-borrowed-vector-double-free.md` — `sort()` takes a borrow but returns an aliasing
+  vector; moving the result into a struct field double-frees.
+- `FEATURE-no-stderr-writer.md` — no way for a program to write to its own stderr.
