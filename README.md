@@ -37,6 +37,26 @@ have yet, also leaves a `BUG-*.md` or `FEATURE-*.md` in its subdir — so each e
 not just "did it build" but feedback on what to fix, what library module to add, or how
 Promise could implement the prompt better.
 
+## Tasks & runs
+
+Every task, its prompt, and every recorded run — the run's folder (source,
+`SUMMARY.md`, `context.md`, any `BUG-*.md`) and its screen recording. Each task's own
+`README.md` has the full write-up.
+
+| Task | Prompt | Agent | Run folder | Recording |
+|---|---|---|---|---|
+| [hello-world](hello-world/) — learn Promise from the toolchain, print "hello, world" | [`prompt.md`](hello-world/prompt.md) | Claude Code | [`hello-world-claude/`](hello-world/hello-world-claude/) · [context](hello-world/hello-world-claude/context.md) | [▶ watch](https://asciinema.org/a/oCAihDeFSLD2UqQo) |
+| | | Gemini | [`hello-world-gemini/`](hello-world/hello-world-gemini/) · [context](hello-world/hello-world-gemini/context.md) | [▶ watch](https://asciinema.org/a/6sfuuqw94GYBUOwu) |
+| [line-count](line-count/) — concurrent line-counting CLI (one goroutine per file) | [`prompt.md`](line-count/prompt.md) | Claude Code | [`line-count-claude/`](line-count/line-count-claude/) · [context](line-count/line-count-claude/context.md) | [▶ watch](https://asciinema.org/a/jbftIgLkkISzu05r) |
+| [mini-git](mini-git/) — content-addressed VCS with 10 subcommands | [`prompt.md`](mini-git/prompt.md) | Claude Code | [`mini-git-claude/`](mini-git/mini-git-claude/) · [context](mini-git/mini-git-claude/context.md) | [▶ watch](https://asciinema.org/a/gkviSZkNSxplrnUR) |
+
+Each prompt above is the *task-specific* ask; the prompt actually sent to the agent
+wraps it with [`PROMPT_PREFIX.md`](PROMPT_PREFIX.md) and
+[`PROMPT_SUFFIX.md`](PROMPT_SUFFIX.md). Re-recorded tasks keep their older runs in git
+history — see the **Prior runs** table in
+[`line-count/README.md`](line-count/README.md) and
+[`mini-git/README.md`](mini-git/README.md).
+
 ## Honest caveats
 
 - **Non-deterministic.** Agents don't produce identical output twice — each entry

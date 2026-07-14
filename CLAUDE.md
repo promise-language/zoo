@@ -53,6 +53,14 @@ Rules:
 - Always keep the per-row `· [▶ watch](https://asciinema.org/a/<CAST_ID>)` link in the
   Results table too (also stamped by `bin/upload.sh`; `PENDING` until then).
 
+## Root README index
+
+The root [`README.md`](README.md) carries a **Tasks & runs** table — one row per
+recorded run: task (+ one-line description), `prompt.md`, agent, run folder +
+`context.md`, and the `▶ watch` cast link. It is **not** auto-stamped: after a first
+run of a new task or a new agent, add the row by hand; after a re-record, update that
+agent's cast link there too (the same URL `bin/upload.sh` stamps into the task README).
+
 ## Recording a run
 
 - **First run:** `bin/record.sh <agent> <task-dir>` records the agent into
