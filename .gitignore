@@ -5,3 +5,4 @@
 # Per run: commit the .pr source + captured output, not compiled binaries.
 # Add each run's binary here.
 hello-world/hello
+mini-git/mini-git-claude/mini-git-claude

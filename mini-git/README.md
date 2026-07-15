@@ -20,7 +20,7 @@ language feature — captured for filing upstream).
 the live TUI cleanly):
 
 <!-- cast:claude width=50% -->
-<a href="https://asciinema.org/a/gkviSZkNSxplrnUR"><img src="https://asciinema.org/a/gkviSZkNSxplrnUR.svg" width="50%" alt="asciicast — mini-git, Claude Code"></a>
+<a href="https://asciinema.org/a/zahuq4JEZZq2qPbb"><img src="https://asciinema.org/a/zahuq4JEZZq2qPbb.svg" width="50%" alt="asciicast — mini-git, Claude Code"></a>
 <!-- /cast:claude -->
 
 ## Attribution — and why this is *not* a benchmark
@@ -50,7 +50,7 @@ numbers.
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | ⚠️ built all 10 subcommands; once it compiled, logic was correct on the first run — past **2 reproducible compiler bugs** (one a silent use-after-move soundness hole) + several guide/compiler mismatches. The earlier run's missing-wall-clock-time gap is now **resolved** (`time.DateTime.now()` works). Captured as `BUG-*.md` · ~17m | [`mini-git-claude/`](mini-git-claude/) · [▶ watch](https://asciinema.org/a/gkviSZkNSxplrnUR) |
+| Claude Code | ⚠️ built all 10 subcommands; once it compiled, logic was correct on the first run — past **2 reproducible compiler bugs** (one a silent use-after-move soundness hole) + several guide/compiler mismatches. The earlier run's missing-wall-clock-time gap is now **resolved** (`time.DateTime.now()` works). Captured as `BUG-*.md` · ~17m | [`mini-git-claude/`](mini-git-claude/) · [▶ watch](https://asciinema.org/a/zahuq4JEZZq2qPbb) |
 | Gemini | _not yet run_ | — |
 
 **What this run found** — each minimized (with a verified "compiles fine" control) and captured for upstream:
@@ -62,10 +62,11 @@ The earlier run's missing wall-clock-time gap is **resolved** in this toolchain 
 
 ## Prior runs
 
-> **3 runs** · Promise 2026.1→2026.3 · compiler bugs hit 2→2→2
+> **4 runs** · Promise 2026.1→2026.4 · compiler bugs hit 2→2→2→1
 
 | Agent | Date | Promise | Bugs | Links |
 |---|---|---|---|---|
+| Claude Code | 2026-07-12 | 2026.3 | 2 | [▶ play](https://asciinema.org/a/gkviSZkNSxplrnUR) · [browse](https://github.com/promise-language/zoo/tree/cb68c58e0e57a58e9de0fa2ad75e4dbcac3c12ea/mini-git/mini-git-claude) |
 | Claude Code | 2026-06-24 | 2026.1 | 2 | [▶ play](https://asciinema.org/a/Zm8HoT1IEtIyjAk0) · [browse](https://github.com/promise-language/zoo/tree/6e93e0f4cd9ee688466d66e7092ea1913342b559/mini-git/mini-git-claude) |
 | Claude Code | 2026-06-18 | 2026.1 | 2 | [▶ play](https://asciinema.org/a/R0W7ESiJeloezs86) · [browse](https://github.com/promise-language/zoo/tree/2f0a4df9a956c86d12b2119c7ca2fd13c04f836e/mini-git/mini-git-claude) |
 
