@@ -145,6 +145,14 @@ jq --arg id "$id" --arg task "$task" --arg agent "$agent" --arg label "$label" \
 ' "$manifest" > "$tmp" && mv "$tmp" "$manifest"
 echo "updated manifest: $manifest"
 
+# --- 3b. add this recording to the sitemap (search indexing), idempotently ---
+sm="$WWW_DIR/public/sitemap.xml"
+if [[ -f "$sm" ]] && ! grep -qF "/cast/?c=$id</loc>" "$sm"; then
+  LOC="$SITE/cast/?c=$id" LASTMOD="$(date +%F)" perl -i -pe '
+    s{(</urlset>)}{"  <url>\n    <loc>$ENV{LOC}</loc>\n    <lastmod>$ENV{LASTMOD}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.6</priority>\n  </url>\n$1"}e' "$sm"
+  echo "added to sitemap: $LOC"
+fi
+
 # --- 4. stamp the player URL into context.md + the README --------------------
 # Replaces the 'pending' placeholders left by record.sh / record.sh --rerecord:
 #   context.md  -> the "| Recording |" row value
@@ -180,7 +188,7 @@ cat <<EOF
 
   # 1) website (hosts the cast + player):
   cd $WWW_DIR
-  git add public/zoo/ public/cast/
+  git add public/zoo/ public/cast/ public/sitemap.xml
   git commit -m "zoo: publish $id recording"
   git push
 
