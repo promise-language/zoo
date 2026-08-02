@@ -7,4 +7,4 @@
 | Promise version | promise version 2026.0 (commit 6adc8907003f3939c5fd8eaf88445893c37b23de) |
 | Agent | gemini — Antigravity (agy) 1.0.8 |
 | Session duration | 41s |
-| Recording | https://asciinema.org/a/6sfuuqw94GYBUOwu |
+| Recording | https://promise-lang.org/cast/?c=hello-world-gemini-2026.0 |

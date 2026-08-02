@@ -9,7 +9,7 @@
 # "Prior runs" table (+ a one-line progress aggregate) in the task README and a
 # "Previous runs" section in the run's context.md — then the dir is wiped, the agent
 # re-runs fresh, and THIS agent's cast/watch in the README are reset to a "pending"
-# state that bin/upload.sh stamps with the new recording URL. Only the current run's
+# state that bin/publish.sh stamps with the new recording URL. Only the current run's
 # source + summary stay in-tree; old source/summary/cast live in git history.
 # (Re-record refuses unless the existing run is committed and clean.)
 #
@@ -25,7 +25,8 @@
 #   demo.cast    asciinema recording — view with the asciinema PLAYER, which
 #                renders Claude's TUI faithfully. We do NOT render a GIF: agg's
 #                emulator garbles Claude's live redraws (overlapping text). Use
-#                `asciinema play demo.cast` (local) or upload/embed the player.
+#                `asciinema play demo.cast` (local), or bin/publish.sh to self-host
+#                it on promise-lang.org (played by the vendored asciinema player).
 #   (plus the generated .pr; the compiled binary is removed)
 #
 # The agent runs INTERACTIVELY (its TUI renders — headless `-p` is blank) in
@@ -115,7 +116,7 @@ fi
 # then deletes the dir so the agent runs fresh. rr_finalize (after the run) writes the
 # "Previous runs" lineage into context.md and grows the "Prior runs" table + progress
 # aggregate in the task README, then resets this agent's cast/watch to a "pending
-# upload" state that bin/upload.sh later stamps with the new recording URL.
+# upload" state that bin/publish.sh later stamps with the new recording URL.
 rr_preflight_and_capture() {
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "error: --rerecord needs a git repo" >&2; exit 2; }
   git ls-files --error-unmatch "$out_dir/context.md" >/dev/null 2>&1 \
@@ -134,7 +135,7 @@ rr_preflight_and_capture() {
   RR_OLD_DATE="$(perl -ne 'if (/^\| Date \| (\S+)/){print $1; last}' "$ctx")"
   RR_OLD_VER_FULL="$(perl -ne 'if (/^\| Promise version \| (.+?) \|/){print $1; last}' "$ctx")"
   RR_OLD_VER="$(printf '%s' "$RR_OLD_VER_FULL" | perl -ne 'if (/version\s+(\S+)/ || /\b(20\d\d\.\S+)/){print $1; last}')"
-  RR_OLD_PLAY="$(perl -ne 'if (m{(https://asciinema\.org/a/[A-Za-z0-9]+)}){print $1; last}' "$ctx")"
+  RR_OLD_PLAY="$(perl -ne 'if (m{(https://(?:asciinema\.org/a/[A-Za-z0-9]+|promise-lang\.org/cast/\?c=[A-Za-z0-9._-]+))}){print $1; last}' "$ctx")"
   RR_OLD_BUGS="$(git ls-tree -r --name-only "$RR_OLD_SHA" -- "$out_dir" 2>/dev/null | grep -Ec '/BUG-[^/]*\.md$' || true)"
   # prior "Previous runs" rows already in the old context.md, to carry forward
   RR_CARRIED_CTX="$(perl -0777 -ne 'if (/\n## Previous runs\b(.*)$/s){my $b=$1; while ($b =~ /^(\|(?!\s*Date\b)(?!\s*:?-).*\|)\s*$/mg){print "$1\n"}}' "$ctx")"
@@ -177,7 +178,7 @@ rr_finalize() {
     # cast marker -> pending note (style-aware: multi-line block vs inline table cell)
     s{(<!-- cast:\Q$A\E\b[^>]*-->)(.*?)(<!-- /cast:\Q$A\E -->)}{
       my ($o,$inner,$c)=($1,$2,$3);
-      my $note="_▶ recording pending — run `bin/upload.sh $A $TD` to embed it_";
+      my $note="_▶ recording pending — run `bin/publish.sh $A $TD` to embed it_";
       ($inner =~ /\n/) ? "$o\n$note\n$c" : "$o$note$c";
     }se;
     # this agent results-row watch link -> PENDING (row links to TASK-AGENT/)
@@ -298,7 +299,7 @@ else
   bash "$0" __run "$agent" "$prompt_file" "$out_dir_abs"
 fi
 echo "| Session duration | $(( $(date +%s) - start ))s |" >> "$ctx"
-echo "| Recording | _run \`asciinema upload demo.cast\` and paste the asciinema.org URL here_ |" >> "$ctx"
+echo "| Recording | _run \`bin/publish.sh $agent $task_dir\` to host it on promise-lang.org and stamp the URL here_ |" >> "$ctx"
 
 # --- mask secrets in the recording (length- + escape-preserving) ---
 # Same length keeps cursor positions valid; the (?:\e\[...)?\K skips a preceding
@@ -322,7 +323,7 @@ fi
 if [[ -f "$cast" ]]; then
   echo "recording: $cast"
   echo "  preview faithfully:  asciinema play $(printf %q "$cast")"
-  echo "  share:  asciinema upload <cast>  (asciinema.org), or embed asciinema-player on the site"
+  echo "  publish:  bin/publish.sh $agent $task_dir   (self-hosts it on promise-lang.org)"
 fi
 
 # --- drop compiled binaries (extensionless executables; regenerable) ---
@@ -345,7 +346,7 @@ if [[ -f "$sumry" ]]; then
   echo "the agent's full TL;DR → $out_dir_abs/SUMMARY.md   (cmd/ctrl-click to open, or: open $(printf %q "$out_dir_abs/SUMMARY.md"))"
 fi
 if (( rerecord )); then
-  echo "→ re-record done. NEXT: bin/upload.sh $agent $task_dir  — stamps the new recording URL"
+  echo "→ re-record done. NEXT: bin/publish.sh $agent $task_dir  — stamps the new recording URL"
   echo "  into context.md + the README cast/watch (replacing the 'pending' placeholders)."
   echo "  Then review the '$agent' row Outcome + any findings list in $task_dir/README.md (editorial)."
 else

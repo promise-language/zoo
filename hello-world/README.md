@@ -17,14 +17,14 @@ the live TUIs cleanly):
 
 | Claude Code | Gemini |
 |:---:|:---:|
-| <!-- cast:claude --><a href="https://asciinema.org/a/oCAihDeFSLD2UqQo"><img src="https://asciinema.org/a/oCAihDeFSLD2UqQo.svg" alt="asciicast — hello-world, Claude Code"></a><!-- /cast:claude --> | <!-- cast:gemini --><a href="https://asciinema.org/a/6sfuuqw94GYBUOwu"><img src="https://asciinema.org/a/6sfuuqw94GYBUOwu.svg" alt="asciicast — hello-world, Gemini"></a><!-- /cast:gemini --> |
+| <!-- cast:claude --><a href="https://promise-lang.org/cast/?c=hello-world-claude-2026.0"><img src="hello-world-claude/poster.png" alt="asciicast — hello-world, Claude Code"></a><!-- /cast:claude --> | <!-- cast:gemini --><a href="https://promise-lang.org/cast/?c=hello-world-gemini-2026.0"><img src="hello-world-gemini/poster.png" alt="asciicast — hello-world, Gemini"></a><!-- /cast:gemini --> |
 
 ## Results
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | ✅ compiled & ran first try (~39s) | [`hello-world-claude/`](hello-world-claude/) · [▶ watch](https://asciinema.org/a/oCAihDeFSLD2UqQo) |
-| Gemini | ✅ compiled & ran first try (~41s) | [`hello-world-gemini/`](hello-world-gemini/) · [▶ watch](https://asciinema.org/a/6sfuuqw94GYBUOwu) |
+| Claude Code | ✅ compiled & ran first try (~39s) | [`hello-world-claude/`](hello-world-claude/) · [▶ watch](https://promise-lang.org/cast/?c=hello-world-claude-2026.0) |
+| Gemini | ✅ compiled & ran first try (~41s) | [`hello-world-gemini/`](hello-world-gemini/) · [▶ watch](https://promise-lang.org/cast/?c=hello-world-gemini-2026.0) |
 
 ## Caveats
 

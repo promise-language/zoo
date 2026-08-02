@@ -24,34 +24,39 @@ README — NOT just a buried `▶ watch` link in the Results table. The image dr
 eye; the table link is the secondary, per-row pointer (keep both).
 
 Each agent's cast lives between **agent-scoped cast markers**, sized to **~half the
-README width** via the `<img>` `width` attr. `bin/upload.sh` fills the `<a><img>` embed
-in once the recording is uploaded; until then it's a "pending" note:
+README width** via the `<img>` `width` attr. `bin/publish.sh` fills the `<a><img>` embed
+in once the recording is published to promise-lang.org; until then it's a "pending" note.
+The `<img>` is the run's committed `poster.png` (a still frame, referenced relative to
+the README); the link opens the self-hosted player at `promise-lang.org/cast/?c=<id>`:
 
 ```html
-**▶ Watch the run** — faithful playback in the asciinema player (a GIF can't render
-the live TUI cleanly):
+**▶ Watch the run** — faithful playback in the self-hosted asciinema player (a GIF
+can't render the live TUI cleanly):
 
 <!-- cast:claude width=50% -->
-<a href="https://asciinema.org/a/<CAST_ID>"><img src="https://asciinema.org/a/<CAST_ID>.svg" width="50%" alt="asciicast — <task>, Claude Code"></a>
+<a href="https://promise-lang.org/cast/?c=<id>"><img src="<task>-claude/poster.png" width="50%" alt="asciicast — <task>, Claude Code"></a>
 <!-- /cast:claude -->
 ```
 
+The `<id>` is `<task>-<agent>-<epoch>` (e.g. `mini-git-claude-2026.4`) — it carries the
+Promise epoch so a re-record gets its own URL instead of overwriting the previous one.
+
 Rules:
 - **Markers are required.** `<!-- cast:<agent>[ width=<pct>] -->` … `<!-- /cast:<agent> -->`
-  is how `bin/upload.sh` and `bin/record.sh --rerecord` find and rewrite each agent's
+  is how `bin/publish.sh` and `bin/record.sh --rerecord` find and rewrite each agent's
   cast unambiguously. The optional `width=` on the marker controls the embed: keep
   `width=50%` for a single cast; **omit it** for side-by-side casts (see below).
-- Use the HTML `<a><img></a>` form, **not** the markdown `[![asciicast](…svg)](…)` form
+- Use the HTML `<a><img></a>` form, **not** the markdown `[![asciicast](…)](…)` form
   — the latter renders full-width (too big). Don't hand-edit a cast URL: run
-  `bin/upload.sh` and it stamps the embed + the Results `▶ watch` link for you.
+  `bin/publish.sh` and it stamps the embed + the Results `▶ watch` link for you.
 - **Multiple runs** (e.g. Claude + Gemini): put each agent's marker block in its own
   cell of a side-by-side table and **drop `width=`** — a 2-col table already renders
   each at ~half width (`width="50%"` inside a cell would shrink to ~quarter). See
   [`hello-world/README.md`](hello-world/README.md).
 - Single run: keep `width=50%`. See [`line-count/`](line-count/README.md) and
   [`mini-git/`](mini-git/README.md).
-- Always keep the per-row `· [▶ watch](https://asciinema.org/a/<CAST_ID>)` link in the
-  Results table too (also stamped by `bin/upload.sh`; `PENDING` until then).
+- Always keep the per-row `· [▶ watch](https://promise-lang.org/cast/?c=<id>)` link in
+  the Results table too (also stamped by `bin/publish.sh`; `PENDING` until then).
 
 ## Root README index
 
@@ -59,15 +64,17 @@ The root [`README.md`](README.md) carries a **Tasks & runs** table — one row p
 recorded run: task (+ one-line description), `prompt.md`, agent, run folder +
 `context.md`, and the `▶ watch` cast link. It is **not** auto-stamped: after a first
 run of a new task or a new agent, add the row by hand; after a re-record, update that
-agent's cast link there too (the same URL `bin/upload.sh` stamps into the task README).
+agent's cast link there too (the same URL `bin/publish.sh` stamps into the task README).
 
 ## Recording a run
 
 - **First run:** `bin/record.sh <agent> <task-dir>` records the agent into
-  `<task>-<agent>/`, then `bin/upload.sh <agent> <task-dir>` uploads the cast and
-  **auto-stamps** the URL into `context.md` (the `Recording` row) and the README (the
-  agent's cast embed + `▶ watch` link). Fill in the editorial bits (Outcome cell, any
-  findings list) by hand.
+  `<task>-<agent>/`, then `bin/publish.sh <agent> <task-dir>` renders a poster, copies
+  the cast into the website repo (`public/zoo/<id>.cast`, served + played by
+  promise-lang.org), upserts the recordings manifest, and **auto-stamps** the player URL
+  into `context.md` (the `Recording` row) and the README (the agent's cast embed +
+  `▶ watch` link). Then commit + push **both** repos — publish.sh prints the exact
+  commands. Fill in the editorial bits (Outcome cell, any findings list) by hand.
 - **Re-recording against a newer toolchain:** `bin/record.sh --rerecord <agent> <task-dir>`.
   It refuses unless the existing run is **committed and clean** (it relies on git
   history to preserve the old run), then:
@@ -80,6 +87,20 @@ agent's cast link there too (the same URL `bin/upload.sh` stamps into the task R
     **`## Previous runs`** lineage in `context.md` (with `SUMMARY` / `demo.cast` /
     `browse` links pinned to the old commit);
   - resets this agent's cast/`▶ watch` to `pending`/`PENDING`.
-  Then run `bin/upload.sh <agent> <task-dir>` to stamp the new recording, and review
-  the agent's Outcome cell + findings list (those stay editorial). Bug counts in the
-  table/aggregate come from each run's `BUG-*.md` files at its commit.
+  Then run `bin/publish.sh <agent> <task-dir>` to publish + stamp the new recording, and
+  review the agent's Outcome cell + findings list (those stay editorial). Bug counts in
+  the table/aggregate come from each run's `BUG-*.md` files at its commit.
+
+## Where recordings are hosted
+
+Recordings are **self-hosted on promise-lang.org** — we don't depend on a third-party
+account (asciinema.org reset ours, which is why the pre-2026-08 casts uploaded there
+were lost). `bin/publish.sh` copies each scrubbed `demo.cast` into the website repo at
+`public/zoo/<id>.cast` — alongside a poster (`<id>.png`) and a viewer-context snippet
+(`<id>.md`: what the run is + the task's `prompt.md`, shown under the player) — and
+registers it in `public/zoo/index.json`, which also powers the `/cast/` gallery index.
+The vendored [asciinema player](https://docs.asciinema.org/manual/player/) at
+`public/cast/` plays it via `promise-lang.org/cast/?c=<id>`. The website repo is a sibling checkout — publish.sh
+looks for it at `$HOME/prog/www` (override with `WWW_DIR=...`). The local `demo.cast` is
+**kept in-tree** (not deleted after publishing), so every run's recording survives in
+this repo even if the website is rebuilt.

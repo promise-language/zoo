@@ -16,16 +16,17 @@ agent's TL;DR of how it went), `context.md` (that run's provenance), and any
 `BUG-*.md` / `FEATURE-*.md` it filed (a reproducible compiler bug, or a missing
 stdlib module / language feature — captured for filing upstream).
 
-**▶ Watch the run** — faithful playback in the asciinema player (a GIF can't render
-the live TUI cleanly):
+**▶ Watch the run** — faithful playback in the self-hosted asciinema player (a GIF
+can't render the live TUI cleanly):
 
-<!-- Each run's cast lives between its agent's cast markers; bin/upload.sh fills in the
-     <a><img> embed once the recording is uploaded (and bin/record.sh --rerecord resets
-     it to this pending note). `width=50%` on the marker = a single ~half-width cast.
-     For multiple runs side by side, put each agent's marker block in its own cell of a
-     2-col table and DROP `width=` (a 2-col table already renders each at ~half width). -->
+<!-- Each run's cast lives between its agent's cast markers; bin/publish.sh fills in the
+     <a><img> embed once the recording is published to promise-lang.org (and
+     bin/record.sh --rerecord resets it to this pending note). `width=50%` on the marker
+     = a single ~half-width cast. For multiple runs side by side, put each agent's marker
+     block in its own cell of a 2-col table and DROP `width=` (a 2-col table already
+     renders each at ~half width). -->
 <!-- cast:claude width=50% -->
-_▶ recording pending — run `bin/upload.sh claude <task>` to embed it_
+_▶ recording pending — run `bin/publish.sh claude <task>` to embed it_
 <!-- /cast:claude -->
 
 ## Results

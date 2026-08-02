@@ -16,18 +16,19 @@ agent's TL;DR of how it went), `context.md` (that run's provenance), and any
 `BUG-*.md` / `FEATURE-*.md` it filed (a reproducible compiler bug, or a missing
 stdlib module / language feature — captured for filing upstream).
 
-**▶ Watch the run** — faithful playback in the asciinema player (a GIF can't render
-the live TUI cleanly):
+**▶ Watch** — the current run's recording was lost when the asciinema.org account was
+reset (it was uploaded there, then deleted locally). The earlier **2026-06-16** run
+(Promise 2026.0) survives and is self-hosted on promise-lang.org:
 
 <!-- cast:claude width=50% -->
-<a href="https://asciinema.org/a/jbftIgLkkISzu05r"><img src="https://asciinema.org/a/jbftIgLkkISzu05r.svg" width="50%" alt="asciicast — line-count, Claude Code"></a>
+_▶ current recording unavailable — [watch the 2026-06-16 run](https://promise-lang.org/cast/?c=line-count-claude-2026.0) · re-record with `bin/record.sh --rerecord claude line-count` + `bin/publish.sh` to restore a current one_
 <!-- /cast:claude -->
 
 ## Results
 
 | Agent | Outcome | Run |
 |---|---|---|
-| Claude Code | ⚠️ compiled & ran correctly (20 byte-identical runs) — but only after several iterations past **4 reproducible compiler bugs**, captured as `BUG-*.md` · ~18m | [`line-count-claude/`](line-count-claude/) · [▶ watch](https://asciinema.org/a/jbftIgLkkISzu05r) |
+| Claude Code | ⚠️ compiled & ran correctly (20 byte-identical runs) — but only after several iterations past **4 reproducible compiler bugs**, captured as `BUG-*.md` · ~18m | [`line-count-claude/`](line-count-claude/) · _recording lost_ |
 | Gemini | _not yet run_ | — |
 
 **Compiler bugs this run found** — each minimized (with a verified "compiles fine" control) and filed upstream:
@@ -43,8 +44,8 @@ the live TUI cleanly):
 
 | Agent | Date | Promise | Bugs | Links |
 |---|---|---|---|---|
-| Claude Code | 2026-06-26 | 2026.2 | 3 | [▶ play](https://asciinema.org/a/dspbubt7DWWZksEJ) · [browse](https://github.com/promise-language/zoo/tree/550a37d9ff4a6a3099301a88806324f4bbfa280c/line-count/line-count-claude) |
-| Claude Code | 2026-06-16 | 2026.0 | 4 | [▶ play](https://asciinema.org/a/htmLPSuiBf1INIHq) · [browse](https://github.com/promise-language/zoo/tree/e7c1beb14ab2480da3e87cd42ba98cbb19d56a6c/line-count/line-count-claude) |
+| Claude Code | 2026-06-26 | 2026.2 | 3 | _recording lost_ · [browse](https://github.com/promise-language/zoo/tree/550a37d9ff4a6a3099301a88806324f4bbfa280c/line-count/line-count-claude) |
+| Claude Code | 2026-06-16 | 2026.0 | 4 | [▶ play](https://promise-lang.org/cast/?c=line-count-claude-2026.0) · [browse](https://github.com/promise-language/zoo/tree/e7c1beb14ab2480da3e87cd42ba98cbb19d56a6c/line-count/line-count-claude) |
 
 ## Caveats
 

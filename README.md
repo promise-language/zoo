@@ -43,12 +43,15 @@ Every task, its prompt, and every recorded run — the run's folder (source,
 `SUMMARY.md`, `context.md`, any `BUG-*.md`) and its screen recording. Each task's own
 `README.md` has the full write-up.
 
+**▶ [Watch every recording](https://promise-lang.org/cast/)** — the full gallery, self-hosted
+on promise-lang.org (each **▶ watch** link below opens one directly).
+
 | Task | Prompt | Agent | Run folder | Recording |
 |---|---|---|---|---|
-| [hello-world](hello-world/) — learn Promise from the toolchain, print "hello, world" | [`prompt.md`](hello-world/prompt.md) | Claude Code | [`hello-world-claude/`](hello-world/hello-world-claude/) · [context](hello-world/hello-world-claude/context.md) | [▶ watch](https://asciinema.org/a/oCAihDeFSLD2UqQo) |
-| | | Gemini | [`hello-world-gemini/`](hello-world/hello-world-gemini/) · [context](hello-world/hello-world-gemini/context.md) | [▶ watch](https://asciinema.org/a/6sfuuqw94GYBUOwu) |
-| [line-count](line-count/) — concurrent line-counting CLI (one goroutine per file) | [`prompt.md`](line-count/prompt.md) | Claude Code | [`line-count-claude/`](line-count/line-count-claude/) · [context](line-count/line-count-claude/context.md) | [▶ watch](https://asciinema.org/a/jbftIgLkkISzu05r) |
-| [mini-git](mini-git/) — content-addressed VCS with 10 subcommands | [`prompt.md`](mini-git/prompt.md) | Claude Code | [`mini-git-claude/`](mini-git/mini-git-claude/) · [context](mini-git/mini-git-claude/context.md) | [▶ watch](https://asciinema.org/a/gkviSZkNSxplrnUR) |
+| [hello-world](hello-world/) — learn Promise from the toolchain, print "hello, world" | [`prompt.md`](hello-world/prompt.md) | Claude Code | [`hello-world-claude/`](hello-world/hello-world-claude/) · [context](hello-world/hello-world-claude/context.md) | [▶ watch](https://promise-lang.org/cast/?c=hello-world-claude-2026.0) |
+| | | Gemini | [`hello-world-gemini/`](hello-world/hello-world-gemini/) · [context](hello-world/hello-world-gemini/context.md) | [▶ watch](https://promise-lang.org/cast/?c=hello-world-gemini-2026.0) |
+| [line-count](line-count/) — concurrent line-counting CLI (one goroutine per file) | [`prompt.md`](line-count/prompt.md) | Claude Code | [`line-count-claude/`](line-count/line-count-claude/) · [context](line-count/line-count-claude/context.md) | [▶ watch (2026-06-16)](https://promise-lang.org/cast/?c=line-count-claude-2026.0) |
+| [mini-git](mini-git/) — content-addressed VCS with 10 subcommands | [`prompt.md`](mini-git/prompt.md) | Claude Code | [`mini-git-claude/`](mini-git/mini-git-claude/) · [context](mini-git/mini-git-claude/context.md) | [▶ watch (2026-07-12)](https://promise-lang.org/cast/?c=mini-git-claude-2026.3) |
 
 Each prompt above is the *task-specific* ask; the prompt actually sent to the agent
 wraps it with [`PROMPT_PREFIX.md`](PROMPT_PREFIX.md) and
