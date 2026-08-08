@@ -148,9 +148,10 @@ echo "updated manifest: $manifest"
 # --- 3b. add this recording to the sitemap (search indexing), idempotently ---
 sm="$WWW_DIR/public/sitemap.xml"
 if [[ -f "$sm" ]] && ! grep -qF "/cast/?c=$id</loc>" "$sm"; then
-  LOC="$SITE/cast/?c=$id" LASTMOD="$(date +%F)" perl -i -pe '
+  loc="$SITE/cast/?c=$id"
+  LOC="$loc" LASTMOD="$(date +%F)" perl -i -pe '
     s{(</urlset>)}{"  <url>\n    <loc>$ENV{LOC}</loc>\n    <lastmod>$ENV{LASTMOD}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.6</priority>\n  </url>\n$1"}e' "$sm"
-  echo "added to sitemap: $LOC"
+  echo "added to sitemap: $loc"
 fi
 
 # --- 4. stamp the player URL into context.md + the README --------------------
