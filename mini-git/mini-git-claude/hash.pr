@@ -1,0 +1,20 @@
+// Content addressing: FNV-1a, 64-bit.
+//
+// The whole tool leans on this one property: the same bytes always produce the
+// same id, in this run and in every later one. FNV-1a is not a cryptographic
+// hash — it is a deterministic, dependency-free one, which is exactly what a
+// content-addressed store needs to be reproducible.
+
+fnv1a_64(u8[] data) u64 `public {
+  u64 hash = 0xcbf29ce484222325u64; // FNV offset basis
+  for byte in data {
+    hash = hash ^ (byte as u64);
+    hash = hash * 0x100000001b3u64; // FNV prime (wraps, by design)
+  }
+  return hash;
+}
+
+// The id form used everywhere on disk: 16 lowercase hex digits.
+hash_bytes(u8[] data) string `public => fnv1a_64(data).to_string(base: 16, width: 16, fill: '0');
+
+hash_text(string text) string `public => hash_bytes(text.bytes());

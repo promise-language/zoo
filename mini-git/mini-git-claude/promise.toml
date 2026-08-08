@@ -1,4 +1,4 @@
 [module]
-name = "mini-git-claude"
-epoch = "2026.4"
+name = "minigit"
+epoch = "2026.6"
 main = "main.pr"

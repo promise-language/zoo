@@ -1,0 +1,90 @@
+// A commit: the file set that was staged, the message, when it happened, and
+// the commit it followed. The id is the hash of the commit's own serialized
+// text, so nothing outside the commit contributes to its identity.
+
+type Commit `public {
+  string id `final;
+  string? parent `final; // absent for the first commit
+  string timestamp `final;
+  string message `final;
+  map[string, string] files `final; // filename -> blob hash
+
+  // Assembles a commit and derives its id by hashing its serialized form.
+  create(string? parent, string timestamp, string message,
+  map[string, string] move files) Self `factory {
+    string body = commit_body(parent, timestamp, message, files);
+    return Self(id: hash_text(body),
+    parent: clone_optional(parent),
+    timestamp: timestamp.clone(),
+    message: message.clone(),
+    files: move files);
+  }
+
+  // Exactly the bytes stored in .minigit/commits/<id>.
+  serialize(this) string => commit_body(this.parent, this.timestamp, this.message, this.files);
+}
+
+// The canonical commit text — and therefore the hash input:
+//
+//     parent <commit id, or - for the first commit>
+//     time <RFC 3339 timestamp>
+//     message <message, newlines escaped>
+//     blob <blob hash> <filename>        one line per file, sorted by filename
+//
+// Sorting the blob lines is what makes the id depend on the file *set* rather
+// than on the order the files happened to be staged in.
+commit_body(string? parent, string timestamp, string message,
+map[string, string] files) string {
+  Builder body = Builder();
+  body.write_string("parent {parent ?: "-"}\n");
+  body.write_string("time {timestamp}\n");
+  body.write_string("message {escape_line(message)}\n");
+  for name in sorted_names(files) {
+    body.write_string("blob {files[name]!} {name}\n");
+  }
+  return body.to_string();
+}
+
+// Reads back what commit_body wrote. `id` is the file name it was loaded from.
+parse_commit!(string id, string text) Commit `public {
+  string? parent = none;
+  string timestamp = "";
+  string message = "";
+  map[string, string] files = {:};
+
+  for line in text.split("\n") {
+    if line.is_empty {
+      continue;
+    }
+    (field, value) := split_first(line, " ")?^;
+    match field {
+      "parent" => {
+        if value != "-" {
+          parent = value.clone();
+        }
+      },
+      "time" => {
+        timestamp = value.clone();
+      },
+      "message" => {
+        message = unescape_line(value);
+      },
+      "blob" => {
+        (blob, name) := split_first(value, " ")?^;
+        files[name] = blob;
+      },
+      _ => {
+        raise repo_error("corrupt commit {id}: unknown field '{field}'");
+      },
+    }
+  }
+
+  if timestamp.is_empty {
+    raise repo_error("corrupt commit {id}: no timestamp");
+  }
+  return Commit(id: id.clone(),
+  parent: clone_optional(parent),
+  timestamp: move timestamp,
+  message: move message,
+  files: move files);
+}

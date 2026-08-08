@@ -1,0 +1,14 @@
+// Every failure minigit reports on its own — carrying the exit status that
+// `main` should hand back to the shell.
+
+type MiniGitError is error `public {
+  int status;
+}
+
+// The command was used correctly but could not be carried out (missing file,
+// unknown commit, empty staging area, ...). Exits 1.
+repo_error(string message) MiniGitError `public => MiniGitError(message: message.clone(), status: 1);
+
+// The command line itself was wrong (bad subcommand, wrong argument count).
+// Exits 2.
+usage_error(string message) MiniGitError `public => MiniGitError(message: message.clone(), status: 2);

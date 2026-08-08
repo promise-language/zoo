@@ -1,0 +1,241 @@
+// One function per subcommand. Each one checks its arguments, does the smallest
+// amount of work it can, and prints only what it changed.
+
+// minigit init — lay out .minigit/, or report that it is already there.
+cmd_init!(string[] args) {
+  expect_no_args("init", args);
+  Repo repo = Repo.at(".");
+  if repo.exists {
+    print_line("minigit repository already initialized in {repo.root}");
+    return;
+  }
+  repo.create();
+  print_line("initialized empty minigit repository in {repo.root}");
+}
+
+// minigit add <file> — store the file's bytes as a blob, stage its name.
+cmd_add!(string[] args) {
+  expect_args("add", "<file>", args, 1);
+  string file = args[0];
+  Repo repo = open_repo();
+
+  if !io.File.exists(file) {
+    raise repo_error("no such file: {file}");
+  }
+  if !io.File.metadata(file).is_file {
+    raise repo_error("not a regular file: {file}");
+  }
+
+  u8[] contents = read_bytes(file);
+  string blob = repo.put_blob(contents);
+
+  map[string, string] staged = repo.read_index();
+  staged[file] = blob.clone();
+  repo.write_index(staged);
+
+  print_line("staged {file} {blob}");
+}
+
+// minigit rm <file> — take a filename back out of the staging area.
+cmd_rm!(string[] args) {
+  expect_args("rm", "<file>", args, 1);
+  string file = args[0];
+  Repo repo = open_repo();
+
+  map[string, string] staged = repo.read_index();
+  if !staged.contains(file) {
+    raise repo_error("{file} is not staged");
+  }
+  staged.remove(file);
+  repo.write_index(staged);
+
+  print_line("unstaged {file}");
+}
+
+// minigit status — the staged filenames, sorted.
+cmd_status!(string[] args) {
+  expect_no_args("status", args);
+  Repo repo = open_repo();
+
+  map[string, string] staged = repo.read_index();
+  if staged.is_empty {
+    print_line("nothing staged");
+    return;
+  }
+  for name in sorted_names(staged) {
+    print_line(name);
+  }
+}
+
+// minigit commit -m "<message>" — turn the staging area into a commit.
+cmd_commit!(string[] args) {
+  string message = expect_message(args);
+  Repo repo = open_repo();
+
+  map[string, string] staged = repo.read_index();
+  if staged.is_empty {
+    raise repo_error("nothing staged to commit");
+  }
+
+  Commit commit = Commit.create(parent: repo.head,
+  timestamp: now_utc(),
+  message: message,
+  files: move staged);
+  repo.put_commit(commit);
+  repo.set_head(commit.id);
+  repo.clear_index();
+
+  print_line("committed {commit.id} ({commit.files.len} file(s))");
+}
+
+// minigit log — walk the chain from HEAD back to the first commit.
+cmd_log!(string[] args) {
+  expect_no_args("log", args);
+  Repo repo = open_repo();
+
+  string? cursor = repo.head;
+  bool printed = false;
+  while id := cursor {
+    Commit commit = repo.load_commit(id);
+    if printed {
+      print_line("");
+    }
+    printed = true;
+    print_line("commit  {commit.id}");
+    print_line("date    {commit.timestamp}");
+    print_line("message {commit.message}");
+    cursor = commit.parent;
+  }
+  if !printed {
+    print_line("no commits yet");
+  }
+}
+
+// minigit show <commit> — one commit in full, files sorted by name.
+cmd_show!(string[] args) {
+  expect_args("show", "<commit>", args, 1);
+  Repo repo = open_repo();
+  Commit commit = repo.load_commit(args[0]);
+
+  print_line("commit  {commit.id}");
+  print_line("parent  {commit.parent ?: "-"}");
+  print_line("date    {commit.timestamp}");
+  print_line("message {commit.message}");
+  print_line("files");
+  for name in sorted_names(commit.files) {
+    print_line("  {commit.files[name]!}  {name}");
+  }
+}
+
+// minigit diff <commit-a> <commit-b> — compare the two file sets by blob hash.
+// A file whose hash changed is "modified"; one that exists on only one side was
+// added or removed.
+cmd_diff!(string[] args) {
+  expect_args("diff", "<commit-a> <commit-b>", args, 2);
+  Repo repo = open_repo();
+  Commit before = repo.load_commit(args[0]);
+  Commit after = repo.load_commit(args[1]);
+
+  string[] added = [];
+  string[] modified = [];
+  for name in sorted_names(after.files) {
+    if old_blob := before.files[name] {
+      if old_blob != after.files[name]! {
+        modified.push("modified {name}");
+      }
+    } else {
+      added.push("added    {name}");
+    }
+  }
+
+  string[] removed = [];
+  for name in sorted_names(before.files) {
+    if !after.files.contains(name) {
+      removed.push("removed  {name}");
+    }
+  }
+
+  if added.is_empty && removed.is_empty && modified.is_empty {
+    print_line("no differences between {before.id} and {after.id}");
+    return;
+  }
+  for line in added {
+    print_line(line);
+  }
+  for line in removed {
+    print_line(line);
+  }
+  for line in modified {
+    print_line(line);
+  }
+}
+
+// minigit checkout <commit> — put the commit's files back on disk, then move the
+// current-commit pointer to it and clear the staging area.
+cmd_checkout!(string[] args) {
+  expect_args("checkout", "<commit>", args, 1);
+  Repo repo = open_repo();
+  Commit commit = repo.load_commit(args[0]);
+
+  for name in sorted_names(commit.files) {
+    u8[] contents = repo.read_blob(commit.files[name]!);
+    string parent_dir = path.parent(name);
+    if parent_dir != "." {
+      io.Dir.make_all(parent_dir);
+    }
+    write_bytes(name, contents);
+    print_line("restored {name}");
+  }
+
+  repo.set_head(commit.id);
+  repo.clear_index();
+  print_line("checked out {commit.id}");
+}
+
+// minigit reset <commit> — the same pointer move as checkout, but the working
+// directory is left exactly as it is.
+cmd_reset!(string[] args) {
+  expect_args("reset", "<commit>", args, 1);
+  Repo repo = open_repo();
+  Commit commit = repo.load_commit(args[0]);
+
+  repo.set_head(commit.id);
+  repo.clear_index();
+  print_line("reset to {commit.id}; working directory untouched");
+}
+
+// --- argument checking ---------------------------------------------------
+
+open_repo!() Repo {
+  Repo repo = Repo.at(".");
+  repo.require();
+  return repo;
+}
+
+expect_no_args!(string command, string[] args) {
+  if !args.is_empty {
+    raise usage_error("usage: minigit {command}");
+  }
+}
+
+expect_args!(string command, string spec, string[] args, int count) {
+  if args.len != count {
+    raise usage_error("usage: minigit {command} {spec}");
+  }
+}
+
+// commit takes one flag and nothing else: -m "<message>".
+expect_message!(string[] args) string {
+  if args.len != 2 || args[0] != "-m" {
+    raise usage_error("usage: minigit commit -m \"<message>\"");
+  }
+  string message = args[1].trim();
+  if message.is_empty {
+    raise usage_error("commit message must not be empty");
+  }
+  return message;
+}
+
+// Whole-second UTC, so a commit's timestamp reads the same way every time
+// (DateTime.now() carries sub-second digits that add noise, not information).
+now_utc() string => time.DateTime.from_unix_secs(time.DateTime.now().unix_secs).to_string();

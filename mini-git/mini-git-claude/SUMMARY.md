@@ -1,121 +1,195 @@
-# mini-git — build summary
+# mini-git in Promise — summary
 
 ## What I built
 
-A self-contained "mini-git" in a single Promise file (`main.pr`), scaffolded with
-`promise init` and compiled to one binary with `promise build`. It implements all
-ten subcommands — `init`, `add`, `rm`, `status`, `commit -m`, `log`, `show`,
-`diff`, `checkout`, `reset` — operating on the current directory and persisting
-everything under a hidden `.minigit/` directory:
+`minigit`, a self-contained content-addressed version control tool: ~650 lines of
+Promise across seven files, scaffolded with `promise init`, built into a single
+binary with `promise build`, and driven entirely from the command line.
 
-```
-.minigit/objects/<hash>   raw file bytes, content-addressed (a blob)
-.minigit/commits/<id>     a commit, addressed by the hash of its own text
-.minigit/index            the staging area (one "<hash> <name>" line per file)
-.minigit/HEAD             the current commit id (absent until the first commit)
-```
+| file | what lives there |
+|---|---|
+| `main.pr` | argv dispatch; maps failures onto exit codes (1 = operation failed, 2 = misuse) |
+| `commands.pr` | one function per subcommand, plus the argument checks |
+| `store.pr` | the `.minigit/` directory: blobs, commits, index, HEAD, raw byte I/O |
+| `commit.pr` | the `Commit` record and its canonical text format |
+| `hash.pr` | FNV-1a (64-bit) content addressing |
+| `text.pr` | shared line-format helpers (split, sort, escape) |
+| `errors.pr` | `MiniGitError is error`, carrying the exit status |
 
-Content addressing is a hand-rolled 64-bit **FNV-1a**, rendered as a zero-padded
-16-char hex string — stable and deterministic, so blob and commit ids reproduce
-across runs (I verified the same bytes hash identically after wiping and
-re-adding). Commits are hashed over a canonical, sorted text serialization, so a
-commit's id is a hash of its own contents. Output is deterministic: filenames are
-sorted everywhere, and each failure case (missing file, empty staging area,
-already-initialized repo, unknown commit, unstaging something not staged, no
-repository) prints a clear `minigit: …` message and exits non-zero.
+State on disk is four things: `objects/<hash>` (raw bytes of every added file),
+`commits/<id>` (one commit per file), `index` (the staging area) and `HEAD`. A
+commit's id is the FNV-1a hash of its own serialized text — I verified that
+independently by recomputing FNV-1a over `.minigit/commits/<id>` in Python and
+getting the id back. Output is deterministic: every filename listing goes through
+one `sorted_names` helper, and the blob lines inside a commit are sorted too, so
+the id depends on the file *set* and not on staging order.
 
-One design point worth flagging, because it's faithful to the spec but differs
-from real git: a commit holds **exactly the staged files** and committing clears
-the staging area. There is no carried-forward tree — so if you stage only
-`poem.txt` for the second commit, `data.csv` from the first commit is *not* in the
-second, and `diff` correctly reports it as removed. The task defines `commit` as
-"record a commit holding the staged files … clear the staging area," so this is
-the intended minimal model, not an oversight.
+A commit records exactly what was staged (the task's wording), so it is a
+snapshot of the staging area rather than a merge with its parent — `checkout`
+then restores precisely that file set. Blobs are read and written as `u8[]`, not
+strings, so binary files survive: a 5 KB random file round-tripped through
+`add` → `commit` → `rm` → `checkout` with an identical MD5. Empty files,
+filenames containing spaces, and nested paths (`nested/deep.txt`, whose parent
+directory is recreated on checkout) all work.
 
-## Did it compile and run on the first try?
+## Did it compile and run the first try?
 
-**It did not compile on the first try** — the language isn't in my training data,
-so I learned it from `promise guide` / `promise doc` and hit a handful of things I
-had to correct (see below). But once it type-checked, it **ran correctly on the
-first execution**: every subcommand worked, binary (non-UTF-8) files round-tripped
-byte-for-byte through blob storage and `checkout` (I tested all 256 byte values),
-multi-line commit messages survived serialize→parse, and hashes were stable across
-runs. No runtime or logic bugs surfaced after the compile stage.
+Not the first try — but every failure was a compile error, none was a wrong
+answer at runtime. The first `promise build` produced three parse errors (trailing
+commas in multi-line calls, and `return move x;`, which is not a thing), then a
+round of semantic errors: duplicate `use` across files, a moved-out `blob`
+variable, `move` needed on two constructor arguments, and optional chaining into
+a method call. All were pinpointed with exact line/column and a suggested fix —
+the ownership diagnostics in particular tell you what to do ("cannot move
+borrowed parameter 'root'; declare the parameter with `move` to consume it").
+Once it compiled, every subcommand behaved correctly on the first run; the only
+post-compile change was cosmetic (`path.normalize`, so messages say `.minigit`
+instead of `./.minigit`).
 
-## Program output (representative session)
+## Program output
 
 ```
 $ minigit init
-initialized empty minigit repository in .minigit/
-$ minigit add poem.txt ; minigit add data.csv
-staged poem.txt (830781d8d58d7c18)
-staged data.csv (22d48dce7926f8d9)
-$ minigit commit -m "initial import"
-committed 298a8050ff826a6f
+initialized empty minigit repository in .minigit
+$ minigit add a.txt
+staged a.txt a9bc80cca21f28b3
+$ minigit add b.txt
+staged b.txt e277e67d7e50251b
+$ minigit status
+a.txt
+b.txt
+$ minigit commit -m "first commit"
+committed f77f436f81ed2cb1 (2 file(s))
+$ minigit rm b.txt
+unstaged b.txt
+$ minigit status
+a.txt
+c.txt
+$ minigit commit -m "edit a, add c"
+committed 3456f044031f51ef (2 file(s))
 $ minigit log
-commit a80cae58ed84a5f8
-date:    2026-07-15T12:12:22+00:00
+commit  3456f044031f51ef
+date    2026-08-08T12:31:31Z
+message edit a, add c
 
-    extend the poem
-
-commit 298a8050ff826a6f
-date:    2026-07-15T12:12:22+00:00
-
-    initial import
-$ minigit diff 298a8050ff826a6f a80cae58ed84a5f8
-- data.csv
-~ poem.txt
-$ minigit checkout 298a8050ff826a6f
-checked out 298a8050ff826a6f (2 files restored)
+commit  f77f436f81ed2cb1
+date    2026-08-08T12:31:31Z
+message first commit
+$ minigit show f77f436f81ed2cb1
+commit  f77f436f81ed2cb1
+parent  -
+date    2026-08-08T12:31:31Z
+message first commit
+files
+  a9bc80cca21f28b3  a.txt
+  e277e67d7e50251b  b.txt
+$ minigit diff f77f436f81ed2cb1 3456f044031f51ef
+added    c.txt
+removed  b.txt
+modified a.txt
+$ minigit checkout f77f436f81ed2cb1
+restored a.txt
+restored b.txt
+checked out f77f436f81ed2cb1
+$ cat a.txt
+hello
+$ minigit reset 3456f044031f51ef
+reset to 3456f044031f51ef; working directory untouched
+$ cat a.txt   # reset left the working file alone
+hello
+$ minigit add nope.txt
+minigit: no such file: nope.txt
+  (exit 1)
+$ minigit commit -m "nothing staged"
+minigit: nothing staged to commit
+  (exit 1)
+$ minigit show 0123456789abcdef
+minigit: unknown commit '0123456789abcdef'
+  (exit 1)
+$ minigit diff f77f436f81ed2cb1
+minigit: usage: minigit diff <commit-a> <commit-b>
+  (exit 2)
 ```
 
-Error cases (all exit 1): `minigit: not a minigit repository (run 'minigit init'
-first)`, `minigit: cannot add 'nope.txt': no such file`, `minigit: nothing staged
-to commit`, `minigit: unknown commit 'deadbeef…'`, `minigit: cannot unstage
-'b.txt': not staged`.
+`minigit status` in a directory with no repository prints
+`minigit: not a minigit repository (run 'minigit init' first)` and exits 1; a
+second `minigit init` says the repository already exists and exits 0.
 
-## What surprised me / had to work out about Promise
+## Filed upstream — please submit these
 
-Things that aren't obvious and cost me a compile cycle or two:
+Five bugs and two feature gaps, each minimized to the smallest source that still
+triggers it, with the closest compiling control verified rather than remembered:
 
-- **No C-style ternary.** `cond ? a : b` doesn't exist — `?:` is the *elvis*
-  operator for optionals. I rewrote conditional values as `if/else`.
-- **No top-level variables.** Module scope holds only functions and types;
-  `string REPO_DIR = ".minigit";` at the top level is a parse error. I made the
-  constants nullary expression-bodied functions (`repo_dir() string => ".minigit";`).
-- **`as` casts bind very loosely.** `c as int - '0' as int` misparses (the `-`
-  gets a `char` operand); it needs `(c as int) - ('0' as int)`. Also `char as int`
-  yields a **non-optional** `int` code point — handy, but I'd expected an optional.
-- **Strings are move types, and storing one consumes it.** Inserting into a map
-  (`idx[file] = hash`) or constructing a struct *moves* the string, and the borrow
-  checker then flags any later use (e.g. printing a confirmation). The fix is an
-  explicit `.clone()` at the point of storage — the compiler catches every
-  use-after-move at compile time, which is genuinely nice once you expect it.
-- **`sort` consumes its argument and needs an explicit type arg** for
-  `map.keys()` (`sort[string](m.keys())`), and `move` applies only to *named*
-  bindings — you can't `move` a temporary like `m.keys()`.
-- **No string→int in std.** `int.parse` takes a `Reader`, not a string, so I
-  hand-rolled a small `to_int` for the stored timestamp.
-- **`time` is labelled "placeholder — pending native PAL support," but
-  `DateTime.now()` works fine** on macOS and gave me real Unix seconds + RFC-3339
-  formatting.
-- Reading raw bytes is a `File.read` loop into a `u8[]`; `string.bytes()` and
-  `string.from_bytes()` convert both ways.
+- **`BUG-optional-chain-into-getter.md`** — the serious one. `name?.len` panics
+  the compiler (`panic: codegen: undeclared getter string.len`, Go stack trace);
+  `box?.size` on a *user-declared* getter compiles and then **segfaults at
+  runtime**; `box?.value` on a plain field is fine, and `name?.is_empty` happens
+  to work. Only the present-value path of a getter access through `?.` is broken.
+- **`BUG-bare-call-on-tuple-returning-failable.md`** — `promise guide` says
+  `foo()?^` is "the same as bare call", but for a failable function returning a
+  tuple they differ: `(head, tail) := split_at(x)` binds `head` to the whole
+  tuple and `tail` to an `error`, while `(head, tail) := split_at(x)?^` works.
+- **`BUG-trailing-comma-rejected-in-argument-lists.md`** — trailing commas are
+  fine in vector/map literals, match arms and enum bodies, and rejected in call,
+  constructor, parameter and tuple lists.
+- **`BUG-duplicate-use-across-project-files.md`** — `use io;` in two files of one
+  project is `io redeclared in this scope`, so a file cannot declare its own
+  imports; the import is project-global whether you write it or not.
+- **`BUG-format-merges-comment-blocks.md`** — cosmetic: `promise format` deletes
+  the blank line between a file-header comment and the next doc comment, merging
+  them into one block.
+- **`FEATURE-promise-run-cannot-pass-arguments.md`** — `promise run` has no way
+  to pass argv to the program (extra tokens, even after `--`, are read as more
+  source files), which is awkward for a CLI project.
+- **`FEATURE-no-stdlib-digest-module.md`** — no `hash`/`digest`/`crypto` module in
+  the catalog; the nearest things are `gzip.crc32` and the undocumented-stability
+  `Hashable.hash`. Did not block me (the task allowed rolling my own), but every
+  content-addressed project will ship its own copy of FNV-1a.
 
-## Two rough edges filed for upstream
+## What surprised me about Promise
 
-Both are written up in their own files in this directory — please submit them:
+**Flow-sensitive narrowing is stronger than I expected, in both directions.**
+After `if value is absent { return none; }` the compiler treats `value` as a
+plain `string` for the rest of the function — my `value!` unwrap after that guard
+was rejected with "unwrap (!) requires an optional expression", which is a very
+satisfying error to get. The same narrowing bit me in `cmd_log`: an early
+`if cursor is absent { ...; return; }` narrowed `cursor` to `string`, so the
+`while id := cursor` unwrap-loop below it no longer type-checked. Restructuring
+around the narrowing (drop the early return, print "no commits yet" if the loop
+never ran) made the function shorter, so the compiler was right.
 
-1. **`BUG-raise-return-not-allowed-as-bare-match-arm.md`** — a bare `raise …` or
-   `return …` as a match-arm body fails to *parse*, with a misleading `no viable
-   alternative` cascade that blames the `match`/function line, not the offending
-   token. The same `raise` wrapped in a block `{ … }` compiles, which is the
-   workaround I used in the command dispatcher. Minimized to the smallest trigger
-   with compiling controls, verified on 2026.4.
-2. **`FEATURE-no-stderr-writer.md`** — Promise exposes the standard streams for
-   *input* only. `print`/`print_line` are hardwired to stdout and there's no
-   `eprint`, no `io.stderr`, and no way to wrap fd 2 in a `Writer`. A CLI can't put
-   diagnostics on stderr, so `2>/dev/null` can't silence them and errors can
-   interleave into piped data. Not a hard blocker (I send diagnostics to stdout +
-   a non-zero exit), but it makes the tool less composable. This gap was already
-   present in 2026.3 and is unchanged in 2026.4.
+**Ownership is unobtrusive right up until it isn't, and then it is specific.**
+Roughly one error per fifteen lines on the first build, all of the form "you
+borrowed this, you need to own it": `root.clone()` in a factory that stores its
+argument, `move` on constructor arguments, `blob.clone()` because
+`staged[file] = blob` consumes the value. Two asymmetries I had to learn by
+experiment: map *keys* are copied implicitly while map *values* are moved, and
+`return x;` moves an owned local — `return move x;` is a parse error even though
+`move` is required at ordinary call sites.
+
+**Failable functions are genuinely pleasant.** Writing `!` on a function and then
+just calling `io.File.read_content(path)` bare, with errors auto-propagating,
+removes almost all error plumbing; `MiniGitError is error` with an extra
+`int status` field, caught once in `main` with `if failure is MiniGitError`, gave
+me exit codes for free. The one sharp edge is that `?!` means *panic* even inside
+a failable function, which reads like the opposite of what you'd guess.
+
+**Small things that made the code shorter than I planned:**
+`int.to_string(base: 16, width: 16, fill: '0')` renders a hash id in one call;
+`sort(move names)` needs no comparator for strings; `use handle := io.File.open(...)`
+closes the file at scope exit; triple-quoted strings hold the usage text verbatim;
+`{expr}` interpolation accepts arbitrary expressions including `?:`.
+
+**Documentation quality is high, with one stale spot.** `promise doc <module>`
+gave me exact signatures for everything I used, and I never had to guess an API.
+But `promise doc`'s module index still lists `time` as a "placeholder — pending
+native PAL support" while `time.DateTime.now()`, `from_unix_secs` and RFC 3339
+formatting all work — I nearly wrote my own timestamp formatting because of that
+line.
+
+**One design note rather than a complaint:** `io.File.read_content` returns a
+`string`, so it is the wrong tool for a version control tool's blobs. The
+byte-level path (`File.read` into a `u8[]`, `File.write` out of one) is there and
+works, but `Writer.write` takes `u8[]~` — a *mutable* borrow — which forced `~`
+annotations all the way up through `put_blob` for data that is only ever read. A
+`write(u8[] data)` shared-borrow overload would remove that ripple.

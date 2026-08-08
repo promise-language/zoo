@@ -1,529 +1,72 @@
-// mini-git — a self-contained, content-addressed version-control tool.
+// minigit — a small content-addressed version control tool.
 //
-// All state lives on disk under a hidden `.minigit/` directory:
-//
-//   .minigit/objects/<hash>   raw file bytes, addressed by their FNV-1a hash (a blob)
-//   .minigit/commits/<id>     a commit, addressed by the FNV-1a hash of its own text
-//   .minigit/index            the staging area: one "<hash> <name>" line per staged file
-//   .minigit/HEAD             the id of the current commit (absent until the first commit)
-//
-// Commit ids are reproducible: identical contents always hash to the same id.
+//   main       parses argv and maps failures onto exit codes  (this file)
+//   commands   one function per subcommand                    (commands.pr)
+//   store      the .minigit directory on disk                 (store.pr)
+//   commit     the commit record and its text format          (commit.pr)
+//   hash       FNV-1a content addressing                      (hash.pr)
+//   text       shared line-format helpers                     (text.pr)
+//   errors     MiniGitError and its exit statuses             (errors.pr)
+
+// A project's .pr files share one scope, so every module the project uses is
+// imported once, here, and reached as `io.`/`path.`/... from any file
+// (see BUG-duplicate-use-across-project-files.md).
 use io;
 use os;
 use path;
 use time;
 
-// ─── Repository layout ────────────────────────────────────────────────────────
-
-repo_dir() string => ".minigit";
-objects_dir() string => path.join(repo_dir(), "objects");
-commits_dir() string => path.join(repo_dir(), "commits");
-index_path() string => path.join(repo_dir(), "index");
-head_path() string => path.join(repo_dir(), "HEAD");
-
-blob_path(string hash) string => path.join(objects_dir(), hash);
-commit_path(string id) string => path.join(commits_dir(), id);
-
-// ─── FNV-1a (64-bit) content hashing ──────────────────────────────────────────
-//
-// A stable, deterministic hash so blob and commit ids are reproducible across
-// runs. Rendered as a zero-padded 16-character lowercase hex string.
-
-fnv1a_hex(u8[] data) string {
-  u64 h = 14695981039346656037u64; // offset basis
-  u64 prime = 1099511628211u64;
-  for b in data {
-    h = h ^ (b as u64);
-    h = h * prime;
-  }
-  return h.to_string(base: 16, width: 16, fill: '0');
-}
-
-// ─── Raw byte I/O ──────────────────────────────────────────────────────────────
-
-// Read a whole file as raw bytes (chunked, so it is correct for any size).
-read_bytes!(string path_str) u8[] {
-  io.File f = io.File.open(path_str, readonly: true);
-  u8[] out = [];
-  u8[] chunk = u8[].filled(0u8, count: 65536);
-  while true {
-    int got = f.read(chunk);
-    if got == 0 {
-      break;
-    }
-    for i in 0..got {
-      out.push(chunk[i]);
-    }
-  }
-  f.close();
-  return out;
-}
-
-// Write raw bytes to a file, creating parent directories as needed.
-write_bytes!(string path_str, u8[] ~data) {
-  string parent = path.parent(path_str);
-  if !parent.is_empty && !io.Dir.exists(parent) {
-    io.Dir.make_all(parent);
-  }
-  io.File f = io.File.create(path_str);
-  int w = f.write(data);
-  // A regular-file write returns everything for the sizes this tool deals in;
-  // fall back to an explicit loop only if the OS ever hands back a short write.
-  int total = w;
-  while total < data.len {
-    u8[] rest = slice_from(data, total);
-    int more = f.write(rest);
-    if more <= 0 {
-      raise error(message: "short write to {path_str}");
-    }
-    total += more;
-  }
-  f.close();
-}
-
-// Owned copy of `data[start:]` — used only on the rare partial-write path.
-slice_from(u8[] ~data, int start) u8[] {
-  u8[] out = [];
-  for i in start..data.len {
-    out.push(data[i]);
-  }
-  return out;
-}
-
-// ─── A file recorded in the index or a commit ──────────────────────────────────
-
-type FileEntry {
-  string name;
-  string hash;
-}
-
-// Entries sorted by filename — the one canonical order used everywhere output or
-// hashing depends on determinism.
-sorted_entries(map[string, string] files) FileEntry[] {
-  string[] names = sort[string](files.keys());
-  FileEntry[] out = [];
-  for name in names {
-    out.push(FileEntry(name: name.clone(), hash: files[name]!.clone()));
-  }
-  return out;
-}
-
-// ─── Staging area (the index) ──────────────────────────────────────────────────
-
-load_index!() map[string, string] {
-  map[string, string] idx = {:};
-  if !io.File.exists(index_path()) {
-    return idx;
-  }
-  string content = io.File.read_content(index_path());
-  for line in content.split("\n") {
-    if line.is_empty {
-      continue;
-    }
-    string hash = line[0:16];
-    string name = line[17:line.len];
-    idx[name] = hash;
-  }
-  return idx;
-}
-
-save_index!(map[string, string] idx) {
-  Builder b = Builder();
-  for entry in sorted_entries(idx) {
-    b.write_line("{entry.hash} {entry.name}");
-  }
-  io.File.write_content(index_path(), b.to_string());
-}
-
-clear_index!() {
-  if io.File.exists(index_path()) {
-    io.File.remove(index_path());
-  }
-}
-
-// ─── Commits ────────────────────────────────────────────────────────────────────
-
-type Commit {
-  string id;
-  string parent; // "" when this is the first commit
-  int timestamp; // Unix seconds
-  string message;
-  FileEntry[] files; // sorted by name
-}
-
-// Canonical, deterministic text form of a commit. The commit id is the FNV-1a
-// hash of exactly this text, so re-serializing always reproduces the same id.
-//
-//   tree
-//   <hash> <name>          (0+ lines, sorted by name)
-//   end
-//   parent <id>            (empty when none)
-//   timestamp <secs>
-//   message
-//   <message text, verbatim to end of file — may span multiple lines>
-serialize_commit(string parent, int timestamp, string message, FileEntry[] files) string {
-  Builder b = Builder();
-  b.write_line("tree");
-  for entry in files {
-    b.write_line("{entry.hash} {entry.name}");
-  }
-  b.write_line("end");
-  b.write_line("parent {parent}");
-  b.write_line("timestamp {timestamp}");
-  b.write_line("message");
-  b.write_string(message);
-  return b.to_string();
-}
-
-parse_commit(string id, string text) Commit {
-  string[] lines = text.split("\n");
-  FileEntry[] files = [];
-  string parent = "";
-  int timestamp = 0;
-  string message = "";
-
-  int i = 1; // line 0 is the "tree" header
-  while i < lines.len && lines[i] != "end" {
-    string line = lines[i];
-    files.push(FileEntry(name: line[17:line.len], hash: line[0:16]));
-    i += 1;
-  }
-  i += 1; // skip "end"
-
-  if i < lines.len {
-    parent = strip_prefix(lines[i], "parent ");
-    i += 1;
-  }
-  if i < lines.len {
-    timestamp = to_int(strip_prefix(lines[i], "timestamp "));
-    i += 1;
-  }
-  i += 1; // skip the "message" header; the rest is the message verbatim
-
-  string[] rest = [];
-  while i < lines.len {
-    rest.push(lines[i]);
-    i += 1;
-  }
-  message = strings_join(rest, "\n");
-
-  return Commit(id: id.clone(), parent: move parent, timestamp: timestamp, message: move message, files: move files);
-}
-
-load_commit!(string id) Commit {
-  if !io.File.exists(commit_path(id)) {
-    raise error(message: "unknown commit '{id}'");
-  }
-  return parse_commit(id, io.File.read_content(commit_path(id)));
-}
-
-read_head!() string {
-  if !io.File.exists(head_path()) {
-    return "";
-  }
-  return io.File.read_content(head_path()).trim();
-}
-
-write_head!(string id) {
-  io.File.write_content(head_path(), id);
-}
-
-// ─── Small string helpers ──────────────────────────────────────────────────────
-
-strip_prefix(string s, string prefix) string {
-  if s.starts_with(prefix) {
-    return s[prefix.len:s.len];
-  }
-  return s;
-}
-
-strings_join(string[] parts, string sep) string {
-  string out = "";
-  for i, p in parts {
-    if i > 0 {
-      out += sep.clone();
-    }
-    out += p.clone();
-  }
-  return out;
-}
-
-to_int(string s) int {
-  int n = 0;
-  for c in s {
-    if c >= '0' && c <= '9' {
-      n = n * 10 + ((c as int) - ('0' as int));
-    }
-  }
-  return n;
-}
-
-// Format a Unix timestamp as a stable, human-readable UTC string.
-format_time(int secs) string {
-  return time.DateTime.from_unix_secs(secs).format_rfc3339();
-}
-
-// Print a (possibly multi-line) commit message, each line indented like git.
-print_message(string message) {
-  for line in message.split("\n") {
-    print_line("    {line}");
-  }
-}
-
-// ─── Guards ─────────────────────────────────────────────────────────────────────
-
-require_repo!() {
-  if !io.Dir.exists(repo_dir()) {
-    raise error(message: "not a minigit repository (run 'minigit init' first)");
-  }
-}
-
-// ─── Commands ────────────────────────────────────────────────────────────────────
-
-cmd_init!() {
-  if io.Dir.exists(repo_dir()) {
-    print_line("minigit repository already exists at {repo_dir()}/");
-    return;
-  }
-  io.Dir.make_all(objects_dir());
-  io.Dir.make_all(commits_dir());
-  print_line("initialized empty minigit repository in {repo_dir()}/");
-}
-
-cmd_add!(string file) {
-  require_repo();
-  if !io.File.exists(file) {
-    raise error(message: "cannot add '{file}': no such file");
-  }
-  u8[] bytes = read_bytes(file);
-  string hash = fnv1a_hex(bytes);
-  if !io.File.exists(blob_path(hash)) {
-    write_bytes(blob_path(hash), bytes);
-  }
-  map[string, string] idx = load_index();
-  idx[file.clone()] = hash.clone();
-  save_index(idx);
-  print_line("staged {file} ({hash})");
-}
-
-cmd_rm!(string file) {
-  require_repo();
-  map[string, string] idx = load_index();
-  if !idx.contains(file) {
-    raise error(message: "cannot unstage '{file}': not staged");
-  }
-  idx.remove(file);
-  save_index(idx);
-  print_line("unstaged {file}");
-}
-
-cmd_status!() {
-  require_repo();
-  map[string, string] idx = load_index();
-  if idx.is_empty {
-    print_line("nothing staged");
-    return;
-  }
-  print_line("staged files:");
-  for entry in sorted_entries(idx) {
-    print_line("  {entry.name}");
-  }
-}
-
-cmd_commit!(string message) {
-  require_repo();
-  map[string, string] idx = load_index();
-  if idx.is_empty {
-    raise error(message: "nothing staged to commit");
-  }
-  FileEntry[] files = sorted_entries(idx);
-  string parent = read_head();
-  int timestamp = time.DateTime.now().unix_secs;
-
-  string text = serialize_commit(parent, timestamp, message, files);
-  string id = fnv1a_hex(text.bytes());
-
-  io.File.write_content(commit_path(id), text);
-  write_head(id);
-  clear_index();
-  print_line("committed {id}");
-}
-
-cmd_log!() {
-  require_repo();
-  string id = read_head();
-  if id.is_empty {
-    print_line("no commits yet");
-    return;
-  }
-  while !id.is_empty {
-    Commit c = load_commit(id);
-    print_line("commit {c.id}");
-    print_line("date:    {format_time(c.timestamp)}");
-    print_line("");
-    print_message(c.message);
-    print_line("");
-    id = c.parent;
-  }
-}
-
-cmd_show!(string id) {
-  require_repo();
-  Commit c = load_commit(id);
-  print_line("commit {c.id}");
-  print_line("date:    {format_time(c.timestamp)}");
-  if !c.parent.is_empty {
-    print_line("parent:  {c.parent}");
-  }
-  print_line("");
-  print_message(c.message);
-  print_line("");
-  print_line("files:");
-  for entry in c.files {
-    print_line("  {entry.hash}  {entry.name}");
-  }
-}
-
-cmd_diff!(string id_a, string id_b) {
-  require_repo();
-  Commit a = load_commit(id_a);
-  Commit b = load_commit(id_b);
-
-  map[string, string] fa = {:};
-  for e in a.files {
-    fa[e.name] = e.hash;
-  }
-  map[string, string] fb = {:};
-  for e in b.files {
-    fb[e.name] = e.hash;
-  }
-
-  // Every filename appearing in either commit, in one sorted pass.
-  map[string, string] all = {:};
-  for name in fa.keys() {
-    all[name] = "";
-  }
-  for name in fb.keys() {
-    all[name] = "";
-  }
-
-  bool any = false;
-  for name in sort[string](all.keys()) {
-    string? ha = fa[name];
-    string? hb = fb[name];
-    if ha is absent && hb is present {
-      print_line("+ {name}");
-      any = true;
-    } else if ha is present && hb is absent {
-      print_line("- {name}");
-      any = true;
-    } else if ha! != hb! {
-      print_line("~ {name}");
-      any = true;
-    }
-  }
-  if !any {
-    print_line("no differences");
-  }
-}
-
-cmd_checkout!(string id) {
-  require_repo();
-  Commit c = load_commit(id);
-  for entry in c.files {
-    u8[] bytes = read_bytes(blob_path(entry.hash));
-    write_bytes(entry.name, bytes);
-  }
-  write_head(c.id);
-  clear_index();
-  print_line("checked out {c.id} ({c.files.len} files restored)");
-}
-
-cmd_reset!(string id) {
-  require_repo();
-  Commit c = load_commit(id); // validate the target exists
-  write_head(c.id);
-  clear_index();
-  print_line("reset to {c.id} (working directory unchanged)");
-}
-
-// ─── Usage & dispatch ────────────────────────────────────────────────────────────
-
-print_usage() {
-  print_line("""minigit — a tiny content-addressed version-control tool
-
-usage: minigit <command> [args]
-
-commands:
-  init                       create the .minigit repository
-  add <file>                 stage a file (hash its bytes into a blob)
-  rm <file>                  unstage a file
-  status                     list staged files
-  commit -m <message>        record staged files as a commit
-  log                        show the commit history, newest first
-  show <commit>              show one commit's details and files
-  diff <commit-a> <commit-b> compare two commits' file sets
-  checkout <commit>          restore the working tree to a commit
-  reset <commit>             move HEAD to a commit, leaving files as-is""");
-}
-
-// Expect at least `n` positional arguments after the command name.
-need!(string[] argv, int n, string usage) {
-  if argv.len - 1 < n {
-    raise error(message: "usage: minigit {usage}");
-  }
-}
-
-run!(string[] argv) {
-  if argv.is_empty {
-    print_usage();
-    return;
-  }
-  string cmd = argv[0];
-  match cmd {
-    "init" => cmd_init(),
-    "add" => {
-      need(argv, 1, "add <file>");
-      cmd_add(argv[1]);
-    },
-    "rm" => {
-      need(argv, 1, "rm <file>");
-      cmd_rm(argv[1]);
-    },
-    "status" => cmd_status(),
-    "commit" => {
-      if argv.len < 3 || argv[1] != "-m" {
-        raise error(message: "usage: minigit commit -m <message>");
-      }
-      cmd_commit(argv[2]);
-    },
-    "log" => cmd_log(),
-    "show" => {
-      need(argv, 1, "show <commit>");
-      cmd_show(argv[1]);
-    },
-    "diff" => {
-      need(argv, 2, "diff <commit-a> <commit-b>");
-      cmd_diff(argv[1], argv[2]);
-    },
-    "checkout" => {
-      need(argv, 1, "checkout <commit>");
-      cmd_checkout(argv[1]);
-    },
-    "reset" => {
-      need(argv, 1, "reset <commit>");
-      cmd_reset(argv[1]);
-    },
-    "help" => print_usage(),
-    _ => {
-      raise error(message: "unknown command '{cmd}' (try 'minigit help')");
-    },
-  }
-}
-
 main() {
-  run(os.args)? e {
-    print_line("minigit: {e.message}");
-    os.exit_process(1);
+  run(os.args)? failure {
+    int status = 1;
+    if failure is MiniGitError {
+      status = failure.status;
+    }
+    // If even the diagnostic cannot be written there is nothing left to
+    // report it with — the exit status below still carries the failure.
+    stderr.write_line("minigit: {failure.message}")? {
+    };
+    os.exit_process(status);
   };
+}
+
+run!(string[] args) {
+  if args.is_empty {
+    raise usage_error("expected a command\n{usage_text()}");
+  }
+
+  string command = args[0];
+  string[] rest = args[1:];
+
+  match command {
+    "init" => cmd_init(rest),
+    "add" => cmd_add(rest),
+    "rm" => cmd_rm(rest),
+    "status" => cmd_status(rest),
+    "commit" => cmd_commit(rest),
+    "log" => cmd_log(rest),
+    "show" => cmd_show(rest),
+    "diff" => cmd_diff(rest),
+    "checkout" => cmd_checkout(rest),
+    "reset" => cmd_reset(rest),
+    "help" => print_line(usage_text()),
+    _ => {
+      raise usage_error("unknown command '{command}'\n{usage_text()}");
+    },
+  }
+}
+
+usage_text() string `public {
+  return """usage: minigit <command> [arguments]
+
+  init                        create the .minigit repository here
+  add <file>                  store a file as a blob and stage its name
+  rm <file>                   unstage a filename
+  status                      list the staged filenames
+  commit -m "<message>"       record the staged files as a commit
+  log                         show the commit chain, newest first
+  show <commit>               show one commit and its files
+  diff <commit-a> <commit-b>  compare two commits' file sets
+  checkout <commit>           restore a commit's files into the working directory
+  reset <commit>              move the current commit, keep the working files""";
 }

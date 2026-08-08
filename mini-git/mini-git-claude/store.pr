@@ -1,0 +1,153 @@
+// The repository on disk. Everything minigit remembers between runs lives
+// under one directory:
+//
+//     .minigit/
+//       objects/<blob hash>   the raw bytes of every added file
+//       commits/<commit id>   one serialized commit per file (see commit.pr)
+//       index                 the staging area: "<blob hash> <filename>" lines
+//       HEAD                  the current commit id; empty before the first one
+
+type Repo `public {
+  string root `final;
+  string objects_dir `final;
+  string commits_dir `final;
+  string index_path `final;
+  string head_path `final;
+
+  // The repository belonging to `directory`. Pure path arithmetic — this does
+  // not touch the filesystem, so it is safe to call before `init`.
+  at(string directory) Self `factory {
+    string root = path.normalize(path.join(directory, ".minigit"));
+    return Self(root: root.clone(),
+    objects_dir: path.join(root, "objects"),
+    commits_dir: path.join(root, "commits"),
+    index_path: path.join(root, "index"),
+    head_path: path.join(root, "HEAD"));
+  }
+
+  get exists bool => io.Dir.exists(this.root);
+
+  // Lays out an empty repository: object and commit stores, empty staging
+  // area, and a HEAD that points at nothing yet.
+  create!(this) {
+    io.Dir.make_all(this.objects_dir);
+    io.Dir.make_all(this.commits_dir);
+    io.File.write_content(this.index_path, "");
+    io.File.write_content(this.head_path, "");
+  }
+
+  // Every command except `init` starts here.
+  require!(this) {
+    if !this.exists {
+      raise repo_error("not a minigit repository (run 'minigit init' first)");
+    }
+  }
+
+  // --- objects ---------------------------------------------------------
+
+  // Stores bytes under their content hash and returns it. Identical content
+  // is stored once: if the blob is already there, there is nothing to write.
+  put_blob!(this, u8[] ~data) string {
+    string id = hash_bytes(data);
+    string blob_path = path.join(this.objects_dir, id);
+    if !io.File.exists(blob_path) {
+      write_bytes(blob_path, data);
+    }
+    return id;
+  }
+
+  read_blob!(this, string id) u8[] {
+    string blob_path = path.join(this.objects_dir, id);
+    if !io.File.exists(blob_path) {
+      raise repo_error("repository is missing blob {id}");
+    }
+    return read_bytes(blob_path);
+  }
+
+  // --- staging area ----------------------------------------------------
+
+  // The staging area as filename -> blob hash.
+  read_index!(this) map[string, string] {
+    map[string, string] staged = {:};
+    for line in io.File.read_content(this.index_path).split("\n") {
+      if line.is_empty {
+        continue;
+      }
+      (blob, name) := split_first(line, " ")?^;
+      staged[name] = blob;
+    }
+    return staged;
+  }
+
+  // Written back in sorted order, so the file on disk is stable too.
+  write_index!(this, map[string, string] staged) {
+    Builder out = Builder();
+    for name in sorted_names(staged) {
+      out.write_string("{staged[name]!} {name}\n");
+    }
+    io.File.write_content(this.index_path, out.to_string());
+  }
+
+  clear_index!(this) {
+    io.File.write_content(this.index_path, "");
+  }
+
+  // --- HEAD ------------------------------------------------------------
+
+  // The current commit id, or absent when no commit has been made yet.
+  get head! string? {
+    string current = io.File.read_content(this.head_path).trim();
+    if current.is_empty {
+      return none;
+    }
+    return current;
+  }
+
+  set_head!(this, string id) {
+    io.File.write_content(this.head_path, "{id}\n");
+  }
+
+  // --- commits ---------------------------------------------------------
+
+  put_commit!(this, Commit commit) {
+    io.File.write_content(path.join(this.commits_dir, commit.id),
+    commit.serialize());
+  }
+
+  load_commit!(this, string id) Commit {
+    string commit_path = path.join(this.commits_dir, id);
+    if !io.File.exists(commit_path) {
+      raise repo_error("unknown commit '{id}'");
+    }
+    return parse_commit(id, io.File.read_content(commit_path));
+  }
+}
+
+// --- raw byte I/O --------------------------------------------------------
+//
+// `io.File.read_content` decodes UTF-8, which would corrupt an arbitrary file,
+// so blobs go through these two byte-level helpers instead.
+
+read_bytes!(string file) u8[] `public {
+  use handle := io.File.open(file, readonly: true);
+  u8[] data = [];
+  u8[] chunk = u8[].filled(0u8, count: 65536);
+  while true {
+    int read = handle.read(chunk);
+    if read == 0 {
+      break;
+    }
+    for at in 0..read {
+      data.push(chunk[at]);
+    }
+  }
+  return data;
+}
+
+write_bytes!(string file, u8[] ~data) `public {
+  use handle := io.File.create(file);
+  int written = handle.write(data);
+  if written != data.len {
+    raise repo_error("short write to {file}: {written} of {data.len} bytes");
+  }
+}

@@ -1,0 +1,65 @@
+// Small helpers shared by the two on-disk formats (the index file and commits).
+// Both are line-oriented "<key> <value>" text, so both need the same things: a
+// stable key order, a split at the first separator, and an escape for values
+// that could otherwise contain a newline.
+
+// Splits "<head><separator><tail>" at the *first* separator. The tail keeps any
+// later ones, so filenames and messages may contain the separator themselves.
+//
+// Callers must propagate with an explicit `?^`: on a tuple-returning failable
+// function a bare call destructures into (value, error) instead of propagating —
+// see BUG-bare-call-on-tuple-returning-failable.md.
+split_first!(string line, string separator)(string, string) `public {
+  if at := line.index_of(separator) {
+    return (line[0:at], line[at + separator.len:]);
+  }
+  raise repo_error("malformed line (expected '{separator}'): {line}");
+}
+
+// Filenames in sorted order. Every listing minigit prints goes through here, so
+// output never depends on map iteration order.
+sorted_names(map[string, string] entries) string[] `public {
+  string[] names = entries.keys();
+  return sort(move names);
+}
+
+// An owned copy of an optional string. Written out longhand because `?.` chains
+// into fields but not into method calls, so `value?.clone()` does not compile.
+// After the `is absent` guard the compiler narrows `value` to a plain string.
+clone_optional(string? value) string? `public {
+  if value is absent {
+    return none;
+  }
+  return value.clone();
+}
+
+// A stored value occupies exactly one line, so newlines — and the escape
+// character itself — are escaped on the way out.
+escape_line(string value) string `public => value.replace("\\", "\\\\").replace("\n", "\\n");
+
+// The inverse of escape_line. A single left-to-right scan rather than two
+// replaces, so an escaped backslash sitting before an 'n' stays a backslash.
+unescape_line(string value) string `public {
+  Builder out = Builder();
+  char[] chars = value.chars();
+  int at = 0;
+  while at < chars.len {
+    char current = chars[at];
+    if current == '\\' && at + 1 < chars.len {
+      char escaped = chars[at + 1];
+      if escaped == 'n' {
+        out.write_string("\n");
+        at += 2;
+        continue;
+      }
+      if escaped == '\\' {
+        out.write_string("\\");
+        at += 2;
+        continue;
+      }
+    }
+    out.write_string("{current}");
+    at += 1;
+  }
+  return out.to_string();
+}

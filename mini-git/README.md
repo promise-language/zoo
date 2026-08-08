@@ -21,7 +21,7 @@ reset (it was uploaded there, then deleted locally). Two earlier runs survive an
 self-hosted on promise-lang.org (see **Prior runs** below):
 
 <!-- cast:claude width=50% -->
-_▶ current recording unavailable — watch the [2026-07-12](https://promise-lang.org/cast/?c=mini-git-claude-2026.3), [2026-06-24](https://promise-lang.org/cast/?c=mini-git-claude-2026.1-2026-06-24), or [2026-06-18](https://promise-lang.org/cast/?c=mini-git-claude-2026.1) run · re-record with `bin/record.sh --rerecord claude mini-git` + `bin/publish.sh` to restore a current one_
+<a href="https://promise-lang.org/cast/?c=mini-git-claude-2026.6"><img src="mini-git-claude/poster.png" width="50%" alt="asciicast — mini-git, Claude Code"></a>
 <!-- /cast:claude -->
 
 ## Attribution — and why this is *not* a benchmark
@@ -63,10 +63,11 @@ The earlier run's missing wall-clock-time gap is **resolved** in this toolchain 
 
 ## Prior runs
 
-> **4 runs** · Promise 2026.1→2026.4 · compiler bugs hit 2→2→2→1
+> **5 runs** · Promise 2026.1→2026.6 · compiler bugs hit 2→2→2→1→5
 
 | Agent | Date | Promise | Bugs | Links |
 |---|---|---|---|---|
+| Claude Code | 2026-07-15 | 2026.4 | 1 | [▶ play](https://promise-lang.org/cast/?c=mini-git-claude-2026.3) · [browse](https://github.com/promise-language/zoo/tree/ffb7089a75d8abbcb7f2294a5cc9f47cf1686272/mini-git/mini-git-claude) |
 | Claude Code | 2026-07-12 | 2026.3 | 2 | [▶ play](https://promise-lang.org/cast/?c=mini-git-claude-2026.3) · [browse](https://github.com/promise-language/zoo/tree/cb68c58e0e57a58e9de0fa2ad75e4dbcac3c12ea/mini-git/mini-git-claude) |
 | Claude Code | 2026-06-24 | 2026.1 | 2 | [▶ play](https://promise-lang.org/cast/?c=mini-git-claude-2026.1-2026-06-24) · [browse](https://github.com/promise-language/zoo/tree/6e93e0f4cd9ee688466d66e7092ea1913342b559/mini-git/mini-git-claude) |
 | Claude Code | 2026-06-18 | 2026.1 | 2 | [▶ play](https://promise-lang.org/cast/?c=mini-git-claude-2026.1) · [browse](https://github.com/promise-language/zoo/tree/2f0a4df9a956c86d12b2119c7ca2fd13c04f836e/mini-git/mini-git-claude) |
