@@ -21,7 +21,7 @@ reset (it was uploaded there, then deleted locally). The earlier **2026-06-16** 
 (Promise 2026.0) survives and is self-hosted on promise-lang.org:
 
 <!-- cast:claude width=50% -->
-_▶ current recording unavailable — [watch the 2026-06-16 run](https://promise-lang.org/cast/?c=line-count-claude-2026.0) · re-record with `bin/record.sh --rerecord claude line-count` + `bin/publish.sh` to restore a current one_
+<a href="https://promise-lang.org/cast/?c=line-count-claude-2026.6"><img src="line-count-claude/poster.png" width="50%" alt="asciicast — line-count, Claude Code"></a>
 <!-- /cast:claude -->
 
 ## Results
@@ -40,10 +40,11 @@ _▶ current recording unavailable — [watch the 2026-06-16 run](https://promis
 
 ## Prior runs
 
-> **3 runs** · Promise 2026.0→2026.3 · compiler bugs hit 4→3→0
+> **4 runs** · Promise 2026.0→2026.6 · compiler bugs hit 4→3→0→0
 
 | Agent | Date | Promise | Bugs | Links |
 |---|---|---|---|---|
+| Claude Code | 2026-07-12 | 2026.3 | 0 | [▶ play](https://promise-lang.org/cast/?c=line-count-claude-2026.0) · [browse](https://github.com/promise-language/zoo/tree/ffb7089a75d8abbcb7f2294a5cc9f47cf1686272/line-count/line-count-claude) |
 | Claude Code | 2026-06-26 | 2026.2 | 3 | _recording lost_ · [browse](https://github.com/promise-language/zoo/tree/550a37d9ff4a6a3099301a88806324f4bbfa280c/line-count/line-count-claude) |
 | Claude Code | 2026-06-16 | 2026.0 | 4 | [▶ play](https://promise-lang.org/cast/?c=line-count-claude-2026.0) · [browse](https://github.com/promise-language/zoo/tree/e7c1beb14ab2480da3e87cd42ba98cbb19d56a6c/line-count/line-count-claude) |
 

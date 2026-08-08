@@ -1,4 +1,4 @@
 [module]
 name = "line-count-claude"
-epoch = "2026.3"
+epoch = "2026.6"
 main = "main.pr"
